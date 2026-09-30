@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 import os
 import json
@@ -24,7 +24,83 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
+def init_db():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    # Patients Table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS Patients_Table (
+        Patient_ID TEXT PRIMARY KEY,
+        Full_Name TEXT,
+        Age INTEGER,
+        Known_Allergies TEXT,
+        Current_Medications TEXT
+    )
+    """)
+
+    # Users / Pharmacists Table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS Users_Table (
+        Pharmacist_ID TEXT PRIMARY KEY,
+        Full_Name TEXT,
+        Role_Level TEXT
+    )
+    """)
+
+    # Audit Logs Table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS Verification_Logs_Table (
+        Log_ID INTEGER PRIMARY KEY AUTOINCREMENT,
+        Patient_ID TEXT,
+        Medication TEXT,
+        AI_Status TEXT,
+        AI_Flag TEXT,
+        Timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    # Drug Knowledge Base Table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS Drug_Monographs (
+        Drug_Name TEXT PRIMARY KEY,
+        Drug_Class TEXT,
+        Indications TEXT,
+        Contraindications TEXT,
+        Mechanism TEXT
+    )
+    """)
+
+    # Default Seed Patient
+    cursor.execute("""
+    INSERT OR IGNORE INTO Patients_Table (Patient_ID, Full_Name, Age, Known_Allergies, Current_Medications) 
+    VALUES ('PT-001', 'John Doe', 21, 'Penicillin', 'None')
+    """)
+
+    # Default Seed Monographs
+    sample_drugs = [
+        ('Amoxicillin', 'Antibiotic (Penicillin class)', 'Bacterial infections, otitis media, strep throat', 'Penicillin allergy', 'Inhibits bacterial cell wall synthesis'),
+        ('Ibuprofen', 'NSAID', 'Pain, fever, inflammation', 'Active GI ulcer, severe heart failure', 'Non-selective COX inhibitor, reducing prostaglandin synthesis'),
+        ('Lisinopril', 'ACE Inhibitor', 'Hypertension, heart failure', 'History of angioedema, pregnancy', 'Inhibits angiotensin-converting enzyme')
+    ]
+    for drug in sample_drugs:
+        cursor.execute("""
+        INSERT OR IGNORE INTO Drug_Monographs (Drug_Name, Drug_Class, Indications, Contraindications, Mechanism) 
+        VALUES (?, ?, ?, ?, ?)
+        """, drug)
+
+    conn.commit()
+    conn.close()
+
+# Auto-initialize database tables on server start
+init_db()
+
+# --- FRONTEND & HEALTH ROUTES ---
 @app.route('/', methods=['GET'])
+def serve_dashboard():
+    return send_file('index.html')
+
+@app.route('/health', methods=['GET'])
 def health_check():
     return jsonify({"status": "online", "system": "PharmaMind API (Groq)"}), 200
 
@@ -99,7 +175,7 @@ def calculate_formulation():
     total_volume_str = data.get('total_volume', '')
 
     try:
-        # 1. Deterministic Math Engine (Safe extraction)
+        # Deterministic Math Engine
         conc_match = re.search(r"([0-9]*\.?[0-9]+)", concentration_str)
         vol_match = re.search(r"([0-9]*\.?[0-9]+)", total_volume_str)
         
@@ -109,19 +185,19 @@ def calculate_formulation():
         concentration = float(conc_match.group(1))
         total_volume = float(vol_match.group(1))
         
-        # Determine units
+        # Determine unit
         vol_unit = re.sub(r"[0-9]*\.?[0-9]+", "", total_volume_str).strip().lower()
         if not vol_unit:
             vol_unit = "ml" if prep_type in ["Syrup", "Suspension"] else "g"
 
-        # Calculate exact requirements safely in Python
+        # Math execution in Python
         active_amount_val = (concentration / 100) * total_volume
         base_amount_val = total_volume - active_amount_val
         
         active_amount = f"{active_amount_val:.2f}{vol_unit}"
         base_amount = f"{base_amount_val:.2f}{vol_unit}"
 
-        # 2. AI-Generated Protocols
+        # AI-Generated Protocols
         prompt = f"""
         You are a Master Compounding Pharmacist AI.
         A pharmacist is compounding a {prep_type} of {active_ingredient}.
@@ -161,7 +237,7 @@ def calculate_formulation():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# --- 3. CLINICAL DECISION SUPPORT (NEW) ---
+# --- 3. CLINICAL DECISION SUPPORT ---
 @app.route('/api/suggest', methods=['POST'])
 def clinical_decision_support():
     data = request.get_json()
