@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PharmaMind | Neural Interface</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Rajdhani:wght@500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --neon-cyan: #00f3ff;
+            --neon-green: #39ff14;
+            --neon-red: #ff003c;
+            --neon-yellow: #ffea00;
+            --dark-bg: #050914;
+            --panel-bg: rgba(10, 15, 30, 0.7);
+            --text-main: #e0e6ed;
+        }
+
+        body {
+            font-family: 'Rajdhani', sans-serif;
+            background-color: var(--dark-bg);
+            background-image: 
+                linear-gradient(rgba(0, 243, 255, 0.05) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 243, 255, 0.05) 1px, transparent 1px);
+            background-size: 30px 30px;
+            color: var(--text-main);
+            margin: 0;
+            padding: 50px 20px;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+        }
+
+        .dashboard {
+            background: var(--panel-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(0, 243, 255, 0.2);
+            box-shadow: 0 0 30px rgba(0, 243, 255, 0.1), inset 0 0 20px rgba(0, 243, 255, 0.05);
+            padding: 40px;
+            border-radius: 15px;
+            width: 100%;
+            max-width: 800px;
+            position: relative;
+        }
+
+        .dashboard::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 4px;
+            background: var(--neon-cyan);
+            box-shadow: 0 0 15px var(--neon-cyan);
+        }
+
+        h2 {
+            font-family: 'Orbitron', sans-serif;
+            margin-top: 0;
+            color: var(--neon-cyan);
+            font-size: 1.8em;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            text-shadow: 0 0 10px rgba(0, 243, 255, 0.5);
+        }
+
+        .nav-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 25px;
+            border-bottom: 1px solid rgba(0, 243, 255, 0.3);
+            padding-bottom: 15px;
+            flex-wrap: wrap;
+        }
+
+        .tab-btn {
+            background: transparent;
+            color: #8fa3b0;
+            border: 1px solid transparent;
+            padding: 8px 15px;
+            font-family: 'Orbitron', sans-serif;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: all 0.3s;
+        }
+
+        .tab-btn.active {
+            color: var(--neon-cyan);
+            border: 1px solid var(--neon-cyan);
+            box-shadow: 0 0 10px rgba(0, 243, 255, 0.2) inset;
+        }
+
+        .view-panel { display: none; }
+        .view-panel.active { display: block; animation: fadeIn 0.4s ease-out; }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 700;
+            font-size: 1em;
+            color: #8fa3b0;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        input[type="text"], input[type="number"], select {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 20px;
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid #334;
+            border-radius: 5px;
+            color: var(--neon-cyan);
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 1.2em;
+            box-sizing: border-box;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: var(--neon-cyan);
+            box-shadow: 0 0 8px rgba(0, 243, 255, 0.3);
+        }
+
+        button.action-btn {
+            width: 100%;
+            background: transparent;
+            color: var(--neon-cyan);
+            border: 1px solid var(--neon-cyan);
+            padding: 12px;
+            border-radius: 5px;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.1em;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 0 10px rgba(0, 243, 255, 0.1) inset;
+        }
+
+        button.action-btn:hover {
+            background: var(--neon-cyan);
+            color: #000;
+            box-shadow: 0 0 15px var(--neon-cyan);
+        }
+        
+        button:disabled {
+            border-color: #555;
+            color: #555;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        /* DB Table Styles */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            font-size: 1.1em;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid rgba(0, 243, 255, 0.2);
+        }
+
+        th {
+            font-family: 'Orbitron', sans-serif;
+            color: var(--neon-cyan);
+            text-transform: uppercase;
+            font-size: 0.9em;
+        }
+
+        .crud-btn {
+            background: transparent;
+            border: 1px solid #8fa3b0;
+            color: #8fa3b0;
+            padding: 5px 10px;
+            cursor: pointer;
+            border-radius: 3px;
+            font-family: 'Rajdhani', sans-serif;
+            font-weight: bold;
+            margin-right: 5px;
+        }
+
+        .crud-btn:hover { border-color: var(--neon-cyan); color: var(--neon-cyan); }
+        .crud-btn.delete:hover { border-color: var(--neon-red); color: var(--neon-red); }
+
+        .crud-form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        /* Results Display */
+        #results-container, #calc-results, #clin-results { margin-top: 30px; display: none; }
+        .status-banner {
+            font-family: 'Orbitron', sans-serif;
+            padding: 15px; border-radius: 5px; font-weight: bold; text-align: center;
+            font-size: 1.2em; letter-spacing: 2px; margin-bottom: 20px;
+        }
+        .status-SAFE { border: 2px solid var(--neon-green); color: var(--neon-green); box-shadow: 0 0 10px rgba(57, 255, 20, 0.2) inset; }
+        .status-WARNING { border: 2px solid var(--neon-yellow); color: var(--neon-yellow); box-shadow: 0 0 10px rgba(255, 234, 0, 0.2) inset; }
+        .status-CRITICAL { border: 2px solid var(--neon-red); color: var(--neon-red); box-shadow: 0 0 10px rgba(255, 0, 60, 0.2) inset; }
+        .result-item { background: rgba(0,0,0,0.4); padding: 12px; border-left: 2px solid var(--neon-cyan); margin-bottom: 10px; }
+        .result-label { font-family: 'Orbitron', sans-serif; font-size: 0.8em; color: var(--neon-cyan); text-transform: uppercase; display: block; margin-bottom: 5px;}
+        
+        .log-safe { color: var(--neon-green); font-weight: bold; }
+        .log-warning { color: var(--neon-yellow); font-weight: bold; }
+        .log-critical { color: var(--neon-red); font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div class="dashboard">
+        <h2>PHARMAMIND // TERMINAL</h2>
+        
+        <div class="nav-tabs">
+            <button class="tab-btn active" onclick="switchTab('scanner')">Scanner HUD</button>
+            <button class="tab-btn" onclick="switchTab('calculator')">Pharm Calc</button>
+            <button class="tab-btn" onclick="switchTab('clinical')">Clinical Support</button>
+            <button class="tab-btn" onclick="switchTab('database'); fetchPatients();">Data Matrix</button>
+            <button class="tab-btn" onclick="switchTab('logs'); fetchLogs();">System Logs</button>
+        </div>
+
+        <!-- VIEW 1: SCANNER -->
+        <div id="scanner" class="view-panel active">
+            <label>Target Patient ID</label>
+            <input type="text" id="scan-id" value="PT-001">
+            <label>Prescription Input</label>
+            <input type="text" id="scan-med" value="Amoxicillin 500mg">
+            <button class="action-btn" id="verify-btn" onclick="verifyPrescription()">Execute Verification</button>
+
+            <div id="results-container">
+                <div id="status-banner" class="status-banner"></div>
+                <div class="result-item"><span class="result-label">Subject</span><span id="out-patient"></span></div>
+                <div class="result-item"><span class="result-label">Compound</span><span id="out-med"></span></div>
+                <div class="result-item"><span class="result-label">Flag</span><span id="out-flag"></span></div>
+                <div class="result-item"><span class="result-label">Analysis</span><span id="out-desc"></span></div>
+                <div class="result-item"><span class="result-label">Protocol</span><span id="out-rec"></span></div>
+            </div>
+        </div>
+
+        <!-- VIEW 2: PHARM CALCULATOR -->
+        <div id="calculator" class="view-panel">
+            <div class="crud-form-grid">
+                <div>
+                    <label>Preparation Type</label>
+                    <select id="calc-type">
+                        <option value="Ointment">Topical Ointment</option>
+                        <option value="Syrup">Oral Syrup</option>
+                        <option value="Capsule">Capsule Batch</option>
+                        <option value="Suspension">Suspension</option>
+                    </select>
+                </div>
+                <div><label>Total Target Vol/Weight</label><input type="text" id="calc-vol" placeholder="e.g. 100g or 250ml"></div>
+                <div><label>Active Ingredient</label><input type="text" id="calc-active" placeholder="e.g. Hydrocortisone"></div>
+                <div><label>Target Concentration</label><input type="text" id="calc-conc" placeholder="e.g. 2.5%"></div>
+            </div>
+            
+            <button class="action-btn" id="calc-btn" onclick="calculateFormulation()">Synthesize Formula</button>
+
+            <div id="calc-results">
+                <div class="result-item"><span class="result-label">Active Ingredient Requirement</span><span id="out-active-amt" style="font-size:1.5em; color:var(--neon-yellow);"></span></div>
+                <div class="result-item"><span class="result-label">Base / Excipient Requirement</span><span id="out-base-amt" style="font-size:1.5em; color:var(--neon-green);"></span></div>
+                <div class="result-item"><span class="result-label">Compounding Instructions</span><span id="out-instructions"></span></div>
+                <div class="result-item"><span class="result-label">AI Clinical Feedback</span><span id="out-feedback"></span></div>
+            </div>
+        </div>
+
+        <!-- VIEW 3: CLINICAL DECISION SUPPORT -->
+        <div id="clinical" class="view-panel">
+            <label>Target Patient ID (Optional for context)</label>
+            <input type="text" id="clin-id" placeholder="e.g. PT-001">
+            <label>Diagnosis / Condition</label>
+            <input type="text" id="clin-diag" placeholder="e.g. Severe hypertension with persistent cough">
+            <button class="action-btn" id="clin-btn" onclick="getClinicalSupport()">Query AI Support Matrix</button>
+
+            <div id="clin-results">
+                <div class="result-item">
+                    <span class="result-label">Primary Medication Suggestions</span>
+                    <ul id="out-sug-list" style="margin-top: 5px; padding-left: 20px;"></ul>
+                </div>
+                <div class="result-item"><span class="result-label">Contraindications / Warnings</span><span id="out-contra" style="color:var(--neon-yellow);"></span></div>
+                <div class="result-item"><span class="result-label">Clinical Guidance</span><span id="out-guidance"></span></div>
+            </div>
+        </div>
+
+        <!-- VIEW 4: DATABASE CRUD -->
+        <div id="database" class="view-panel">
+            <div class="crud-form-grid">
+                <div><label>Patient ID</label><input type="text" id="db-id" placeholder="e.g. PT-002"></div>
+                <div><label>Full Name</label><input type="text" id="db-name" placeholder="Name"></div>
+                <div><label>Age</label><input type="number" id="db-age" placeholder="Age"></div>
+                <div><label>Allergies</label><input type="text" id="db-allergies" placeholder="e.g. None"></div>
+            </div>
+            <label>Current Medications</label>
+            <input type="text" id="db-meds" placeholder="e.g. Lisinopril 10mg">
+            
+            <button class="action-btn" onclick="savePatient()">Upsert Record to Matrix</button>
+
+            <table>
+                <thead>
+                    <tr><th>ID</th><th>Name</th><th>Allergies</th><th>Actions</th></tr>
+                </thead>
+                <tbody id="patients-table-body">
+                    <!-- Rows populated by JS -->
+                </tbody>
+            </table>
+        </div>
+
+        <!-- VIEW 5: SYSTEM LOGS -->
+        <div id="logs" class="view-panel">
+            <table>
+                <thead>
+                    <tr><th>Log ID</th><th>Timestamp</th><th>Patient ID</th><th>Medication</th><th>Status</th></tr>
+                </thead>
+                <tbody id="logs-table-body">
+                    <!-- Rows populated by JS -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://127.0.0.1:5000/api';
+
+        // UI Toggle
+        function switchTab(tabId) {
+            document.querySelectorAll('.view-panel').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById(tabId).classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        // --- SCANNER LOGIC ---
+        async function verifyPrescription() {
+            const pid = document.getElementById('scan-id').value;
+            const med = document.getElementById('scan-med').value;
+            const btn = document.getElementById('verify-btn');
+            const res = document.getElementById('results-container');
+            
+            if (!pid || !med) return alert("ERR: Missing parameters.");
+            
+            btn.disabled = true; btn.innerText = "Processing...";
+            res.style.display = "none";
+
+            try {
+                const response = await fetch(`${API_BASE}/verify`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ patient_id: pid, medication: med })
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error);
+
+                const ai = data.ai_verification;
+                document.getElementById('out-patient').innerText = data.patient_name;
+                document.getElementById('out-med').innerText = data.scanned_medication;
+                document.getElementById('out-flag').innerText = ai.flag;
+                document.getElementById('out-desc').innerText = ai.description;
+                document.getElementById('out-rec').innerText = ai.recommendation;
+
+                const banner = document.getElementById('status-banner');
+                banner.innerText = `STATUS: ${ai.status}`;
+                banner.className = `status-banner status-${ai.status}`;
+                res.style.display = "block";
+            } catch (e) { alert("Core Error: " + e.message); } 
+            finally { btn.disabled = false; btn.innerText = "Execute Verification"; }
+        }
+
+        // --- PHARM CALCULATOR LOGIC ---
+        async function calculateFormulation() {
+            const prepType = document.getElementById('calc-type').value;
+            const vol = document.getElementById('calc-vol').value;
+            const active = document.getElementById('calc-active').value;
+            const conc = document.getElementById('calc-conc').value;
+            
+            if (!vol || !active || !conc) return alert("ERR: Complete all formulation fields.");
+            
+            const btn = document.getElementById('calc-btn');
+            const res = document.getElementById('calc-results');
+            
+            btn.disabled = true; btn.innerText = "Calculating Formula...";
+            res.style.display = "none";
+
+            try {
+                const response = await fetch(`${API_BASE}/calculate`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prep_type: prepType, total_volume: vol, active_ingredient: active, concentration: conc })
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error);
+
+                const ai = data.formulation;
+                document.getElementById('out-active-amt').innerText = ai.active_amount;
+                document.getElementById('out-base-amt').innerText = ai.base_amount;
+                document.getElementById('out-instructions').innerText = ai.instructions;
+                document.getElementById('out-feedback').innerText = ai.feedback;
+                
+                res.style.display = "block";
+            } catch (e) { alert("Calculation Error: " + e.message); } 
+            finally { btn.disabled = false; btn.innerText = "Synthesize Formula"; }
+        }
+
+        // --- CLINICAL SUPPORT LOGIC ---
+        async function getClinicalSupport() {
+            const pid = document.getElementById('clin-id').value;
+            const diag = document.getElementById('clin-diag').value;
+            const btn = document.getElementById('clin-btn');
+            const res = document.getElementById('clin-results');
+
+            if (!diag) return alert("ERR: Diagnosis is required for decision support.");
+
+            btn.disabled = true; btn.innerText = "Analyzing Clinical Matrix...";
+            res.style.display = "none";
+
+            try {
+                const response = await fetch(`${API_BASE}/suggest`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ patient_id: pid, diagnosis: diag })
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error);
+
+                const ai = data.decision_support;
+                
+                // Populate suggestions list
+                const ul = document.getElementById('out-sug-list');
+                ul.innerHTML = '';
+                ai.primary_suggestions.forEach(sug => {
+                    const li = document.createElement('li');
+                    li.innerText = sug;
+                    ul.appendChild(li);
+                });
+
+                document.getElementById('out-contra').innerText = ai.contraindications;
+                document.getElementById('out-guidance').innerText = ai.clinical_guidance;
+                
+                res.style.display = "block";
+            } catch (e) { alert("Decision Support Error: " + e.message); } 
+            finally { btn.disabled = false; btn.innerText = "Query AI Support Matrix"; }
+        }
+
+        // --- CRUD LOGIC ---
+        async function fetchPatients() {
+            const response = await fetch(`${API_BASE}/patients`);
+            const patients = await response.json();
+            const tbody = document.getElementById('patients-table-body');
+            tbody.innerHTML = '';
+            
+            patients.forEach(p => {
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${p.Patient_ID}</td>
+                        <td>${p.Full_Name}</td>
+                        <td>${p.Known_Allergies}</td>
+                        <td>
+                            <button class="crud-btn" onclick="loadIntoForm('${p.Patient_ID}', '${p.Full_Name}', ${p.Age}, '${p.Known_Allergies}', '${p.Current_Medications}')">Edit</button>
+                            <button class="crud-btn delete" onclick="deletePatient('${p.Patient_ID}')">Del</button>
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+
+        function loadIntoForm(id, name, age, allergies, meds) {
+            document.getElementById('db-id').value = id;
+            document.getElementById('db-name').value = name;
+            document.getElementById('db-age').value = age;
+            document.getElementById('db-allergies').value = allergies;
+            document.getElementById('db-meds').value = meds;
+        }
+
+        async function savePatient() {
+            const id = document.getElementById('db-id').value;
+            const payload = {
+                patient_id: id,
+                full_name: document.getElementById('db-name').value,
+                age: parseInt(document.getElementById('db-age').value),
+                allergies: document.getElementById('db-allergies').value,
+                medications: document.getElementById('db-meds').value
+            };
+
+            const exists = await fetch(`${API_BASE}/patients`).then(r => r.json()).then(data => data.some(p => p.Patient_ID === id));
+            
+            const method = exists ? 'PUT' : 'POST';
+            const url = exists ? `${API_BASE}/patients/${id}` : `${API_BASE}/patients`;
+
+            await fetch(url, {
+                method: method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            
+            fetchPatients();
+            
+            document.getElementById('db-id').value = '';
+            document.getElementById('db-name').value = '';
+            document.getElementById('db-age').value = '';
+            document.getElementById('db-allergies').value = '';
+            document.getElementById('db-meds').value = '';
+        }
+
+        async function deletePatient(id) {
+            if(confirm(`Purge Subject ${id} from Matrix?`)) {
+                await fetch(`${API_BASE}/patients/${id}`, { method: 'DELETE' });
+                fetchPatients();
+            }
+        }
+
+        // --- LOGS LOGIC ---
+        async function fetchLogs() {
+            try {
+                const response = await fetch(`${API_BASE}/logs`);
+                const logs = await response.json();
+                const tbody = document.getElementById('logs-table-body');
+                tbody.innerHTML = '';
+                
+                logs.forEach(l => {
+                    let statusClass = 'log-safe';
+                    if (l.AI_Status === 'WARNING') statusClass = 'log-warning';
+                    if (l.AI_Status === 'CRITICAL') statusClass = 'log-critical';
+
+                    let localTime = new Date(l.Timestamp + 'Z').toLocaleString();
+
+                    tbody.innerHTML += `
+                        <tr>
+                            <td>#${l.Log_ID}</td>
+                            <td style="font-size: 0.8em; color: #8fa3b0;">${localTime}</td>
+                            <td>${l.Patient_ID}</td>
+                            <td>${l.Medication}</td>
+                            <td class="${statusClass}">${l.AI_Status}</td>
+                        </tr>
+                    `;
+                });
+            } catch (e) {
+                console.error("Failed to fetch logs: ", e);
+            }
+        }
+    </script>
+</body>
+</html>
