@@ -2,7 +2,8 @@ from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 import os
 import json
-import sqlite3
+import psycopg2
+from psycopg2.extras import RealDictCursor
 import re
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -20,15 +21,14 @@ app = Flask(__name__)
 CORS(app)
 
 def get_db_connection():
-    conn = sqlite3.connect('pharmamind.db')
-    conn.row_factory = sqlite3.Row
+    # Connects using the Neon string from Render Environment Variables
+    conn = psycopg2.connect(os.getenv("DATABASE_URL"), cursor_factory=RealDictCursor)
     return conn
 
 def init_db():
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # Patients Table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS Patients_Table (
         Patient_ID TEXT PRIMARY KEY,
@@ -39,7 +39,6 @@ def init_db():
     )
     """)
 
-    # Users / Pharmacists Table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS Users_Table (
         Pharmacist_ID TEXT PRIMARY KEY,
@@ -48,19 +47,17 @@ def init_db():
     )
     """)
 
-    # Audit Logs Table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS Verification_Logs_Table (
-        Log_ID INTEGER PRIMARY KEY AUTOINCREMENT,
+        Log_ID SERIAL PRIMARY KEY,
         Patient_ID TEXT,
         Medication TEXT,
         AI_Status TEXT,
         AI_Flag TEXT,
-        Timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        Timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """)
 
-    # Drug Knowledge Base Table
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS Drug_Monographs (
         Drug_Name TEXT PRIMARY KEY,
@@ -71,13 +68,12 @@ def init_db():
     )
     """)
 
-    # Default Seed Patient
     cursor.execute("""
-    INSERT OR IGNORE INTO Patients_Table (Patient_ID, Full_Name, Age, Known_Allergies, Current_Medications) 
+    INSERT INTO Patients_Table (Patient_ID, Full_Name, Age, Known_Allergies, Current_Medications) 
     VALUES ('PT-001', 'John Doe', 21, 'Penicillin', 'None')
+    ON CONFLICT (Patient_ID) DO NOTHING
     """)
 
-    # Default Seed Monographs
     sample_drugs = [
         ('Amoxicillin', 'Antibiotic (Penicillin class)', 'Bacterial infections, otitis media, strep throat', 'Penicillin allergy', 'Inhibits bacterial cell wall synthesis'),
         ('Ibuprofen', 'NSAID', 'Pain, fever, inflammation', 'Active GI ulcer, severe heart failure', 'Non-selective COX inhibitor, reducing prostaglandin synthesis'),
@@ -85,17 +81,18 @@ def init_db():
     ]
     for drug in sample_drugs:
         cursor.execute("""
-        INSERT OR IGNORE INTO Drug_Monographs (Drug_Name, Drug_Class, Indications, Contraindications, Mechanism) 
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO Drug_Monographs (Drug_Name, Drug_Class, Indications, Contraindications, Mechanism) 
+        VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (Drug_Name) DO NOTHING
         """, drug)
 
     conn.commit()
     conn.close()
 
-# Auto-initialize database tables on server start
-init_db()
+# Auto-initialize tables only if the DATABASE_URL is present
+if os.getenv("DATABASE_URL"):
+    init_db()
 
-# --- FRONTEND & HEALTH ROUTES ---
 @app.route('/', methods=['GET'])
 def serve_dashboard():
     return send_file('index.html')
@@ -104,7 +101,7 @@ def serve_dashboard():
 def health_check():
     return jsonify({"status": "online", "system": "PharmaMind API (Groq)"}), 200
 
-# --- 1. VERIFICATION ENDPOINT (GROQ) ---
+# --- 1. VERIFICATION ENDPOINT ---
 @app.route('/api/verify', methods=['POST'])
 def verify_prescription():
     data = request.get_json()
@@ -115,13 +112,15 @@ def verify_prescription():
     medication = data.get('medication')
 
     conn = get_db_connection()
-    patient = conn.execute('SELECT * FROM Patients_Table WHERE Patient_ID = ?', (patient_id,)).fetchone()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM Patients_Table WHERE Patient_ID = %s', (patient_id,))
+    patient = cursor.fetchone()
 
     if patient is None:
         conn.close()
         return jsonify({"error": f"Patient ID {patient_id} not found."}), 404
 
-    patient_history = f"Patient is {patient['Age']} years old. Known allergies: {patient['Known_Allergies']}. Current medications: {patient['Current_Medications']}."
+    patient_history = f"Patient is {patient['age']} years old. Known allergies: {patient['known_allergies']}. Current medications: {patient['current_medications']}."
 
     prompt = f"""
     You are an expert Clinical Pharmacy Assistant AI.
@@ -146,15 +145,15 @@ def verify_prescription():
         )
         ai_analysis = json.loads(response.choices[0].message.content)
 
-        conn.execute(
-            "INSERT INTO Verification_Logs_Table (Patient_ID, Medication, AI_Status, AI_Flag) VALUES (?, ?, ?, ?)",
+        cursor.execute(
+            "INSERT INTO Verification_Logs_Table (Patient_ID, Medication, AI_Status, AI_Flag) VALUES (%s, %s, %s, %s)",
             (patient_id, medication, ai_analysis.get('status'), ai_analysis.get('flag'))
         )
         conn.commit()
 
         return jsonify({
             "patient_id": patient_id,
-            "patient_name": patient['Full_Name'],
+            "patient_name": patient['full_name'],
             "scanned_medication": medication,
             "ai_verification": ai_analysis
         }), 200
@@ -162,9 +161,10 @@ def verify_prescription():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     finally:
+        cursor.close()
         conn.close()
 
-# --- 2. PHARM CALCULATOR ENDPOINT (HYBRID ENGINE) ---
+# --- 2. PHARM CALCULATOR ENDPOINT ---
 @app.route('/api/calculate', methods=['POST'])
 def calculate_formulation():
     data = request.get_json()
@@ -175,7 +175,6 @@ def calculate_formulation():
     total_volume_str = data.get('total_volume', '')
 
     try:
-        # Deterministic Math Engine
         conc_match = re.search(r"([0-9]*\.?[0-9]+)", concentration_str)
         vol_match = re.search(r"([0-9]*\.?[0-9]+)", total_volume_str)
         
@@ -185,19 +184,16 @@ def calculate_formulation():
         concentration = float(conc_match.group(1))
         total_volume = float(vol_match.group(1))
         
-        # Determine unit
         vol_unit = re.sub(r"[0-9]*\.?[0-9]+", "", total_volume_str).strip().lower()
         if not vol_unit:
             vol_unit = "ml" if prep_type in ["Syrup", "Suspension"] else "g"
 
-        # Math execution in Python
         active_amount_val = (concentration / 100) * total_volume
         base_amount_val = total_volume - active_amount_val
         
         active_amount = f"{active_amount_val:.2f}{vol_unit}"
         base_amount = f"{base_amount_val:.2f}{vol_unit}"
 
-        # AI-Generated Protocols
         prompt = f"""
         You are a Master Compounding Pharmacist AI.
         A pharmacist is compounding a {prep_type} of {active_ingredient}.
@@ -252,11 +248,13 @@ def clinical_decision_support():
     
     if patient_id:
         conn = get_db_connection()
-        patient = conn.execute('SELECT * FROM Patients_Table WHERE Patient_ID = ?', (patient_id,)).fetchone()
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM Patients_Table WHERE Patient_ID = %s', (patient_id,))
+        patient = cursor.fetchone()
         conn.close()
         
         if patient:
-            patient_history = f"Age: {patient['Age']}, Allergies: {patient['Known_Allergies']}, Current Medications: {patient['Current_Medications']}"
+            patient_history = f"Age: {patient['age']}, Allergies: {patient['known_allergies']}, Current Medications: {patient['current_medications']}"
 
     prompt = f"""
     You are an expert Clinical Decision Support AI assisting a pharmacist.
@@ -289,24 +287,38 @@ def clinical_decision_support():
 @app.route('/api/patients', methods=['GET'])
 def get_patients():
     conn = get_db_connection()
-    patients = conn.execute('SELECT * FROM Patients_Table').fetchall()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM Patients_Table')
+    patients = cursor.fetchall()
     conn.close()
-    return jsonify([dict(ix) for ix in patients]), 200
+    
+    # Map Postgres lowercase columns back to the mixed-case UI structure
+    patients_list = []
+    for p in patients:
+        patients_list.append({
+            "Patient_ID": p["patient_id"],
+            "Full_Name": p["full_name"],
+            "Age": p["age"],
+            "Known_Allergies": p["known_allergies"],
+            "Current_Medications": p["current_medications"]
+        })
+    return jsonify(patients_list), 200
 
 @app.route('/api/patients', methods=['POST'])
 def create_patient():
     data = request.get_json()
     conn = get_db_connection()
+    cursor = conn.cursor()
     try:
-        conn.execute(
+        cursor.execute(
             '''INSERT INTO Patients_Table 
                (Patient_ID, Full_Name, Age, Known_Allergies, Current_Medications) 
-               VALUES (?, ?, ?, ?, ?)''',
+               VALUES (%s, %s, %s, %s, %s)''',
             (data['patient_id'], data['full_name'], data['age'], data['allergies'], data['medications'])
         )
         conn.commit()
         return jsonify({"status": "Patient added"}), 201
-    except sqlite3.IntegrityError:
+    except psycopg2.IntegrityError:
         return jsonify({"error": "Patient ID exists"}), 400
     finally:
         conn.close()
@@ -315,10 +327,11 @@ def create_patient():
 def update_patient(patient_id):
     data = request.get_json()
     conn = get_db_connection()
-    conn.execute(
+    cursor = conn.cursor()
+    cursor.execute(
         '''UPDATE Patients_Table 
-           SET Full_Name=?, Age=?, Known_Allergies=?, Current_Medications=? 
-           WHERE Patient_ID=?''',
+           SET Full_Name=%s, Age=%s, Known_Allergies=%s, Current_Medications=%s 
+           WHERE Patient_ID=%s''',
         (data['full_name'], data['age'], data['allergies'], data['medications'], patient_id)
     )
     conn.commit()
@@ -328,7 +341,8 @@ def update_patient(patient_id):
 @app.route('/api/patients/<patient_id>', methods=['DELETE'])
 def delete_patient(patient_id):
     conn = get_db_connection()
-    conn.execute('DELETE FROM Patients_Table WHERE Patient_ID = ?', (patient_id,))
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM Patients_Table WHERE Patient_ID = %s', (patient_id,))
     conn.commit()
     conn.close()
     return jsonify({"status": "Patient deleted"}), 200
@@ -337,9 +351,23 @@ def delete_patient(patient_id):
 @app.route('/api/logs', methods=['GET'])
 def get_logs():
     conn = get_db_connection()
-    logs = conn.execute('SELECT * FROM Verification_Logs_Table ORDER BY Timestamp DESC').fetchall()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM Verification_Logs_Table ORDER BY Timestamp DESC')
+    logs = cursor.fetchall()
     conn.close()
-    return jsonify([dict(ix) for ix in logs]), 200
+    
+    # Map Postgres lowercase columns back to the mixed-case UI structure
+    logs_list = []
+    for l in logs:
+        logs_list.append({
+            "Log_ID": l["log_id"],
+            "Patient_ID": l["patient_id"],
+            "Medication": l["medication"],
+            "AI_Status": l["ai_status"],
+            "AI_Flag": l["ai_flag"],
+            "Timestamp": l["timestamp"].isoformat() + "Z" if l["timestamp"] else ""
+        })
+    return jsonify(logs_list), 200
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
