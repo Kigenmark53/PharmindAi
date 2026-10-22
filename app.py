@@ -2,8 +2,8 @@ from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 import os
 import json
-import psycopg2
-from psycopg2.extras import RealDictCursor
+import pymysql
+import pymysql.cursors
 import re
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -21,9 +21,13 @@ app = Flask(__name__)
 CORS(app)
 
 def get_db_connection():
-    # Connects using the Neon string from Render Environment Variables
-    conn = psycopg2.connect(os.getenv("DATABASE_URL"), cursor_factory=RealDictCursor)
-    return conn
+    return pymysql.connect(
+        host=os.getenv("DB_HOST", "localhost"),
+        user=os.getenv("DB_USER", "root"),
+        password=os.getenv("DB_PASSWORD", ""),
+        database=os.getenv("DB_NAME", "pharmamind"),
+        cursorclass=pymysql.cursors.DictCursor
+    )
 
 def init_db():
     conn = get_db_connection()
@@ -31,9 +35,9 @@ def init_db():
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS Patients_Table (
-        Patient_ID TEXT PRIMARY KEY,
-        Full_Name TEXT,
-        Age INTEGER,
+        Patient_ID VARCHAR(50) PRIMARY KEY,
+        Full_Name VARCHAR(100),
+        Age INT,
         Known_Allergies TEXT,
         Current_Medications TEXT
     )
@@ -41,27 +45,27 @@ def init_db():
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS Users_Table (
-        Pharmacist_ID TEXT PRIMARY KEY,
-        Full_Name TEXT,
-        Role_Level TEXT
+        Pharmacist_ID VARCHAR(50) PRIMARY KEY,
+        Full_Name VARCHAR(100),
+        Role_Level VARCHAR(50)
     )
     """)
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS Verification_Logs_Table (
-        Log_ID SERIAL PRIMARY KEY,
-        Patient_ID TEXT,
-        Medication TEXT,
-        AI_Status TEXT,
-        AI_Flag TEXT,
-        Timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        Log_ID INT AUTO_INCREMENT PRIMARY KEY,
+        Patient_ID VARCHAR(50),
+        Medication VARCHAR(100),
+        AI_Status VARCHAR(50),
+        AI_Flag VARCHAR(100),
+        Timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
     )
     """)
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS Drug_Monographs (
-        Drug_Name TEXT PRIMARY KEY,
-        Drug_Class TEXT,
+        Drug_Name VARCHAR(100) PRIMARY KEY,
+        Drug_Class VARCHAR(100),
         Indications TEXT,
         Contraindications TEXT,
         Mechanism TEXT
@@ -69,9 +73,8 @@ def init_db():
     """)
 
     cursor.execute("""
-    INSERT INTO Patients_Table (Patient_ID, Full_Name, Age, Known_Allergies, Current_Medications) 
+    INSERT IGNORE INTO Patients_Table (Patient_ID, Full_Name, Age, Known_Allergies, Current_Medications) 
     VALUES ('PT-001', 'John Doe', 21, 'Penicillin', 'None')
-    ON CONFLICT (Patient_ID) DO NOTHING
     """)
 
     sample_drugs = [
@@ -81,17 +84,19 @@ def init_db():
     ]
     for drug in sample_drugs:
         cursor.execute("""
-        INSERT INTO Drug_Monographs (Drug_Name, Drug_Class, Indications, Contraindications, Mechanism) 
+        INSERT IGNORE INTO Drug_Monographs (Drug_Name, Drug_Class, Indications, Contraindications, Mechanism) 
         VALUES (%s, %s, %s, %s, %s)
-        ON CONFLICT (Drug_Name) DO NOTHING
         """, drug)
 
     conn.commit()
     conn.close()
 
-# Auto-initialize tables only if the DATABASE_URL is present
-if os.getenv("DATABASE_URL"):
-    init_db()
+# Auto-initialize tables only if DB credentials exist
+if os.getenv("DB_HOST"):
+    try:
+        init_db()
+    except Exception as e:
+        print(f"Database initialization bypassed or failed: {e}")
 
 @app.route('/', methods=['GET'])
 def serve_dashboard():
@@ -120,7 +125,13 @@ def verify_prescription():
         conn.close()
         return jsonify({"error": f"Patient ID {patient_id} not found."}), 404
 
-    patient_history = f"Patient is {patient['age']} years old. Known allergies: {patient['known_allergies']}. Current medications: {patient['current_medications']}."
+    # Safe extraction depending on case sensitivity of the DB engine
+    age = patient.get('Age', patient.get('age'))
+    allergies = patient.get('Known_Allergies', patient.get('known_allergies'))
+    meds = patient.get('Current_Medications', patient.get('current_medications'))
+    name = patient.get('Full_Name', patient.get('full_name'))
+
+    patient_history = f"Patient is {age} years old. Known allergies: {allergies}. Current medications: {meds}."
 
     prompt = f"""
     You are an expert Clinical Pharmacy Assistant AI.
@@ -153,7 +164,7 @@ def verify_prescription():
 
         return jsonify({
             "patient_id": patient_id,
-            "patient_name": patient['full_name'],
+            "patient_name": name,
             "scanned_medication": medication,
             "ai_verification": ai_analysis
         }), 200
@@ -254,7 +265,10 @@ def clinical_decision_support():
         conn.close()
         
         if patient:
-            patient_history = f"Age: {patient['age']}, Allergies: {patient['known_allergies']}, Current Medications: {patient['current_medications']}"
+            age = patient.get('Age', patient.get('age'))
+            allergies = patient.get('Known_Allergies', patient.get('known_allergies'))
+            meds = patient.get('Current_Medications', patient.get('current_medications'))
+            patient_history = f"Age: {age}, Allergies: {allergies}, Current Medications: {meds}"
 
     prompt = f"""
     You are an expert Clinical Decision Support AI assisting a pharmacist.
@@ -292,15 +306,14 @@ def get_patients():
     patients = cursor.fetchall()
     conn.close()
     
-    # Map Postgres lowercase columns back to the mixed-case UI structure
     patients_list = []
     for p in patients:
         patients_list.append({
-            "Patient_ID": p["patient_id"],
-            "Full_Name": p["full_name"],
-            "Age": p["age"],
-            "Known_Allergies": p["known_allergies"],
-            "Current_Medications": p["current_medications"]
+            "Patient_ID": p.get("Patient_ID", p.get("patient_id")),
+            "Full_Name": p.get("Full_Name", p.get("full_name")),
+            "Age": p.get("Age", p.get("age")),
+            "Known_Allergies": p.get("Known_Allergies", p.get("known_allergies")),
+            "Current_Medications": p.get("Current_Medications", p.get("current_medications"))
         })
     return jsonify(patients_list), 200
 
@@ -318,7 +331,7 @@ def create_patient():
         )
         conn.commit()
         return jsonify({"status": "Patient added"}), 201
-    except psycopg2.IntegrityError:
+    except pymysql.IntegrityError:
         return jsonify({"error": "Patient ID exists"}), 400
     finally:
         conn.close()
@@ -356,16 +369,16 @@ def get_logs():
     logs = cursor.fetchall()
     conn.close()
     
-    # Map Postgres lowercase columns back to the mixed-case UI structure
     logs_list = []
     for l in logs:
+        timestamp = l.get("Timestamp", l.get("timestamp"))
         logs_list.append({
-            "Log_ID": l["log_id"],
-            "Patient_ID": l["patient_id"],
-            "Medication": l["medication"],
-            "AI_Status": l["ai_status"],
-            "AI_Flag": l["ai_flag"],
-            "Timestamp": l["timestamp"].isoformat() + "Z" if l["timestamp"] else ""
+            "Log_ID": l.get("Log_ID", l.get("log_id")),
+            "Patient_ID": l.get("Patient_ID", l.get("patient_id")),
+            "Medication": l.get("Medication", l.get("medication")),
+            "AI_Status": l.get("AI_Status", l.get("ai_status")),
+            "AI_Flag": l.get("AI_Flag", l.get("ai_flag")),
+            "Timestamp": timestamp.isoformat() + "Z" if timestamp else ""
         })
     return jsonify(logs_list), 200
 
