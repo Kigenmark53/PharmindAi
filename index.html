@@ -476,33 +476,62 @@
         }
 
         async function savePatient() {
-            const id = document.getElementById('db-id').value;
+            const id = document.getElementById('db-id').value.trim();
+            const name = document.getElementById('db-name').value.trim();
+            const ageVal = document.getElementById('db-age').value;
+            const allergies = document.getElementById('db-allergies').value.trim();
+            const meds = document.getElementById('db-meds').value.trim();
+
+            // 1. Strict Validation
+            if (!id || !name || !ageVal) {
+                return alert("ERR: Patient ID, Full Name, and Age are required fields.");
+            }
+
             const payload = {
                 patient_id: id,
-                full_name: document.getElementById('db-name').value,
-                age: parseInt(document.getElementById('db-age').value),
-                allergies: document.getElementById('db-allergies').value,
-                medications: document.getElementById('db-meds').value
+                full_name: name,
+                age: parseInt(ageVal),
+                allergies: allergies || "None",
+                medications: meds || "None"
             };
 
-            const exists = await fetch(`${API_BASE}/patients`).then(r => r.json()).then(data => data.some(p => p.Patient_ID === id));
-            
-            const method = exists ? 'PUT' : 'POST';
-            const url = exists ? `${API_BASE}/patients/${id}` : `${API_BASE}/patients`;
+            try {
+                // 2. Check if patient exists for Upsert (POST vs PUT)
+                const exists = await fetch(`${API_BASE}/patients`)
+                    .then(r => r.json())
+                    .then(data => data.some(p => p.Patient_ID === id));
+                
+                const method = exists ? 'PUT' : 'POST';
+                const url = exists ? `${API_BASE}/patients/${id}` : `${API_BASE}/patients`;
 
-            await fetch(url, {
-                method: method,
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-            
-            fetchPatients();
-            
-            document.getElementById('db-id').value = '';
-            document.getElementById('db-name').value = '';
-            document.getElementById('db-age').value = '';
-            document.getElementById('db-allergies').value = '';
-            document.getElementById('db-meds').value = '';
+                // 3. Execute Transaction
+                const response = await fetch(url, {
+                    method: method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                const responseData = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(responseData.error || "Database rejected the transaction.");
+                }
+
+                // 4. Refresh UI and Notify
+                fetchPatients();
+                alert(`Success: Patient ${id} has been saved to the Matrix.`);
+                
+                // 5. Clear Inputs
+                document.getElementById('db-id').value = '';
+                document.getElementById('db-name').value = '';
+                document.getElementById('db-age').value = '';
+                document.getElementById('db-allergies').value = '';
+                document.getElementById('db-meds').value = '';
+
+            } catch (error) {
+                alert(`Transaction Error: ${error.message}`);
+                console.error(error);
+            }
         }
 
         async function deletePatient(id) {

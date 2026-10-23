@@ -277,12 +277,14 @@ def clinical_decision_support():
     Condition/Diagnosis: {diagnosis}
     Patient History: {patient_history}
     
-    Return exactly this JSON structure (no markdown tags, just the raw object):
+    Return exactly this JSON structure (no markdown tags, no backtick code blocks, just the raw object):
     {{
         "primary_suggestions": ["Medication 1 with reasoning", "Medication 2 with reasoning"],
         "contraindications": "List of drugs to avoid based on the patient's specific history and allergies",
         "clinical_guidance": "A brief professional summary for the pharmacist regarding treatment approach"
     }}
+
+    CRITICAL: Ensure the output is strictly valid JSON. Do NOT escape single quotes (use ' not \') inside your text strings.
     """
     
     try:
