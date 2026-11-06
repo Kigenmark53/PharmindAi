@@ -1,5 +1,7 @@
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, session
 from flask_cors import CORS
+from werkzeug.security import generate_password_hash, check_password_hash
+from functools import wraps
 import os
 import json
 import pymysql
@@ -18,7 +20,9 @@ client = OpenAI(
 MODEL_ID = "openai/gpt-oss-20b"
 
 app = Flask(__name__)
-CORS(app)
+# Secure secret key for session cookies
+app.secret_key = os.getenv("SECRET_KEY", "pharmamind-super-secret-dev-key") 
+CORS(app, supports_credentials=True)
 
 def get_db_connection():
     return pymysql.connect(
@@ -35,6 +39,7 @@ def init_db():
     conn = get_db_connection()
     cursor = conn.cursor()
 
+    # Core Clinical Tables
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS Patients_Table (
         Patient_ID VARCHAR(50) PRIMARY KEY,
@@ -42,14 +47,6 @@ def init_db():
         Age INT,
         Known_Allergies TEXT,
         Current_Medications TEXT
-    )
-    """)
-
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS Users_Table (
-        Pharmacist_ID VARCHAR(50) PRIMARY KEY,
-        Full_Name VARCHAR(100),
-        Role_Level VARCHAR(50)
     )
     """)
 
@@ -74,21 +71,29 @@ def init_db():
     )
     """)
 
+    # Refresh Users Table for Auth System
+    cursor.execute("DROP TABLE IF EXISTS Users_Table")
+    cursor.execute("""
+    CREATE TABLE Users_Table (
+        User_ID INT AUTO_INCREMENT PRIMARY KEY,
+        Full_Name VARCHAR(100),
+        Email VARCHAR(100) UNIQUE,
+        Password_Hash VARCHAR(255),
+        Role VARCHAR(20) DEFAULT 'user'
+    )
+    """)
+
+    # Create Default Admin Account
+    admin_pass = generate_password_hash("Admin123!")
+    cursor.execute("""
+    INSERT IGNORE INTO Users_Table (Full_Name, Email, Password_Hash, Role) 
+    VALUES ('System Admin', 'admin@pharmamind.com', %s, 'admin')
+    """, (admin_pass,))
+
     cursor.execute("""
     INSERT IGNORE INTO Patients_Table (Patient_ID, Full_Name, Age, Known_Allergies, Current_Medications) 
     VALUES ('PT-001', 'John Doe', 21, 'Penicillin', 'None')
     """)
-
-    sample_drugs = [
-        ('Amoxicillin', 'Antibiotic (Penicillin class)', 'Bacterial infections, otitis media, strep throat', 'Penicillin allergy', 'Inhibits bacterial cell wall synthesis'),
-        ('Ibuprofen', 'NSAID', 'Pain, fever, inflammation', 'Active GI ulcer, severe heart failure', 'Non-selective COX inhibitor, reducing prostaglandin synthesis'),
-        ('Lisinopril', 'ACE Inhibitor', 'Hypertension, heart failure', 'History of angioedema, pregnancy', 'Inhibits angiotensin-converting enzyme')
-    ]
-    for drug in sample_drugs:
-        cursor.execute("""
-        INSERT IGNORE INTO Drug_Monographs (Drug_Name, Drug_Class, Indications, Contraindications, Mechanism) 
-        VALUES (%s, %s, %s, %s, %s)
-        """, drug)
 
     conn.commit()
     conn.close()
@@ -100,16 +105,75 @@ if os.getenv("DB_HOST"):
     except Exception as e:
         print(f"Database initialization bypassed or failed: {e}")
 
+
+# --- SECURITY DECORATORS ---
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            return jsonify({"error": "Unauthorized. Please log in."}), 401
+        return f(*args, **kwargs)
+    return decorated_function
+
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session or session.get('role') != 'admin':
+            return jsonify({"error": "Forbidden. Administrator access required."}), 403
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+# --- AUTHENTICATION ENDPOINTS ---
+@app.route('/api/auth/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    email = data.get('email')
+    password = data.get('password')
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM Users_Table WHERE Email = %s", (email,))
+    user = cursor.fetchone()
+    conn.close()
+
+    if user and check_password_hash(user['Password_Hash'], password):
+        session.clear()
+        session['user_id'] = user['User_ID']
+        session['role'] = user['Role']
+        session['name'] = user['Full_Name']
+        return jsonify({"message": "Logged in successfully", "role": user['Role'], "name": user['Full_Name']}), 200
+    
+    return jsonify({"error": "Invalid email or password"}), 401
+
+@app.route('/api/auth/logout', methods=['POST'])
+def logout():
+    session.clear()
+    return jsonify({"message": "Logged out successfully"}), 200
+
+@app.route('/api/auth/me', methods=['GET'])
+def get_current_user():
+    if 'user_id' in session:
+        return jsonify({
+            "authenticated": True,
+            "user_id": session['user_id'],
+            "name": session['name'],
+            "role": session['role']
+        }), 200
+    return jsonify({"authenticated": False}), 200
+
+
 @app.route('/', methods=['GET'])
 def serve_dashboard():
     return send_file('index.html')
 
 @app.route('/health', methods=['GET'])
 def health_check():
-    return jsonify({"status": "online", "system": "PharmaMind API (Groq)"}), 200
+    return jsonify({"status": "online", "system": "PharmaMind API (Secured)"}), 200
 
 # --- 1. VERIFICATION ENDPOINT ---
 @app.route('/api/verify', methods=['POST'])
+@login_required
 def verify_prescription():
     data = request.get_json()
     if not data:
@@ -127,7 +191,6 @@ def verify_prescription():
         conn.close()
         return jsonify({"error": f"Patient ID {patient_id} not found."}), 404
 
-    # Safe extraction depending on case sensitivity of the DB engine
     age = patient.get('Age', patient.get('age'))
     allergies = patient.get('Known_Allergies', patient.get('known_allergies'))
     meds = patient.get('Current_Medications', patient.get('current_medications'))
@@ -179,6 +242,7 @@ def verify_prescription():
 
 # --- 2. PHARM CALCULATOR ENDPOINT ---
 @app.route('/api/calculate', methods=['POST'])
+@login_required
 def calculate_formulation():
     data = request.get_json()
 
@@ -248,6 +312,7 @@ def calculate_formulation():
 
 # --- 3. CLINICAL DECISION SUPPORT ---
 @app.route('/api/suggest', methods=['POST'])
+@login_required
 def clinical_decision_support():
     data = request.get_json()
     
@@ -303,6 +368,7 @@ def clinical_decision_support():
 
 # --- 4. PATIENTS CRUD ENDPOINTS ---
 @app.route('/api/patients', methods=['GET'])
+@login_required
 def get_patients():
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -322,6 +388,7 @@ def get_patients():
     return jsonify(patients_list), 200
 
 @app.route('/api/patients', methods=['POST'])
+@admin_required
 def create_patient():
     data = request.get_json()
     conn = get_db_connection()
@@ -341,6 +408,7 @@ def create_patient():
         conn.close()
 
 @app.route('/api/patients/<patient_id>', methods=['PUT'])
+@admin_required
 def update_patient(patient_id):
     data = request.get_json()
     conn = get_db_connection()
@@ -356,6 +424,7 @@ def update_patient(patient_id):
     return jsonify({"status": "Patient updated"}), 200
 
 @app.route('/api/patients/<patient_id>', methods=['DELETE'])
+@admin_required
 def delete_patient(patient_id):
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -366,6 +435,7 @@ def delete_patient(patient_id):
 
 # --- 5. AUDIT LOGS ENDPOINT ---
 @app.route('/api/logs', methods=['GET'])
+@login_required
 def get_logs():
     conn = get_db_connection()
     cursor = conn.cursor()
