@@ -256,6 +256,15 @@
             .main-content { padding: 80px 20px 20px; }
             .crud-form-grid { grid-template-columns: 1fr; }
         }
+
+        /* --- NEW UX/UI STYLES --- */
+        .nav-group-title { font-size: 0.75em; color: var(--text-muted); text-transform: uppercase; letter-spacing: 2px; padding: 15px 20px 5px; margin-top: 10px; font-weight: 600; }
+        .sidebar.collapsed .nav-group-title { display: none; }
+        .disclaimer { font-size: 0.85em; color: var(--accent-yellow); margin-top: 20px; border-top: 1px solid rgba(255,234,0,0.2); padding-top: 15px; font-style: italic; line-height: 1.5; }
+        .user-badge { font-size: 0.85em; background: rgba(0,243,255,0.1); padding: 8px 15px; border-radius: 20px; border: 1px solid var(--primary); margin-bottom: 25px; display: inline-block; font-family: 'Orbitron', sans-serif;}
+        .readonly-note { font-size: 0.85em; color: var(--accent-yellow); background: rgba(255,234,0,0.1); padding: 10px; border-radius: 8px; margin-bottom: 20px; border: 1px solid var(--accent-yellow); display: none; }
+        .patient-preview { background: rgba(0,0,0,0.3); border: 1px solid var(--glass-border); padding: 15px; border-radius: 8px; margin-bottom: 25px; display: none; font-size: 0.9em; }
+        .patient-preview strong { color: var(--primary); }
     </style>
 </head>
 <body>
@@ -291,20 +300,22 @@
             <li class="nav-item active" data-target="welcome" data-bg="0">
                 <i class="fas fa-home"></i><span class="link-text">Overview</span>
             </li>
+            <li class="nav-group-title">Clinical</li>
             <li class="nav-item" data-target="scanner" data-bg="1">
-                <i class="fas fa-barcode"></i><span class="link-text">Scanner HUD</span>
+                <i class="fas fa-check-circle"></i><span class="link-text">Prescription Check</span>
             </li>
             <li class="nav-item" data-target="calculator" data-bg="2">
-                <i class="fas fa-calculator"></i><span class="link-text">Pharm Calc</span>
+                <i class="fas fa-flask"></i><span class="link-text">Compounding</span>
             </li>
             <li class="nav-item" data-target="clinical" data-bg="3">
-                <i class="fas fa-notes-medical"></i><span class="link-text">Clinical Support</span>
+                <i class="fas fa-notes-medical"></i><span class="link-text">Decision Support</span>
             </li>
+            <li class="nav-group-title">Records</li>
             <li class="nav-item" data-target="database" data-bg="4" onclick="fetchPatients()">
-                <i class="fas fa-database"></i><span class="link-text">Data Matrix</span>
+                <i class="fas fa-users"></i><span class="link-text">Patients</span>
             </li>
             <li class="nav-item" data-target="logs" data-bg="5" onclick="fetchLogs()">
-                <i class="fas fa-list-alt"></i><span class="link-text">System Logs</span>
+                <i class="fas fa-clipboard-list"></i><span class="link-text">Audit Logs</span>
             </li>
         </ul>
 
@@ -321,11 +332,15 @@
     <!-- Main Application View -->
     <main class="main-content">
         
+        <!-- GLOBAL DATALIST FOR PATIENTS -->
+        <datalist id="global-patient-list"></datalist>
+
         <!-- VIEW 0: WELCOME SCREEN -->
         <div id="welcome" class="view-panel active">
             <div class="panel-card welcome-hero">
+                <div class="user-badge" id="user-role-badge"><i class="fas fa-user-shield"></i> Signed in as Admin</div>
                 <h1>Welcome to PharmindAI</h1>
-                <p>Your intelligent pharmaceutical assistant. Instantly cross-reference drug interactions, calculate precise compounding formulations, and securely manage patient clinical data through an advanced AI matrix.</p>
+                <p>Your intelligent pharmaceutical assistant. Instantly cross-reference drug interactions, calculate precise compounding formulations, and securely manage patient clinical data.</p>
                 
                 <div class="features-grid">
                     <div class="feature-card">
@@ -340,26 +355,30 @@
                     </div>
                     <div class="feature-card">
                         <i class="fas fa-server"></i>
-                        <h4>Cloud Matrix</h4>
-                        <p>Persistent, secure MySQL architecture storing encrypted patient and audit trail records.</p>
+                        <h4>Cloud Records</h4>
+                        <p>Persistent, secure architecture storing encrypted patient and audit trail records.</p>
                     </div>
                 </div>
 
-                <button class="cta-btn" onclick="document.querySelector('[data-target=\'scanner\']').click()">Initialize Terminal</button>
+                <button class="cta-btn" onclick="document.querySelector('[data-target=\'scanner\']').click()">Get Started</button>
             </div>
         </div>
 
         <!-- VIEW 1: SCANNER -->
         <div id="scanner" class="view-panel">
             <div class="panel-card">
-                <h2>Scanner HUD</h2>
+                <h2>Prescription Check</h2>
                 <label>Target Patient ID</label>
-                <input type="text" id="scan-id" value="PT-001" autocomplete="off">
+                <input type="text" id="scan-id" placeholder="Select or type ID..." list="global-patient-list" autocomplete="off" oninput="previewPatientInfo(this.value)">
                 
+                <div class="patient-preview" id="scan-patient-preview">
+                    <!-- Populated by JS -->
+                </div>
+
                 <label>Prescription Input</label>
-                <input type="text" id="scan-med" value="Amoxicillin 500mg" autocomplete="off">
+                <input type="text" id="scan-med" placeholder="e.g. Amoxicillin 500mg" autocomplete="off">
                 
-                <button class="action-btn" id="verify-btn" onclick="verifyPrescription()">Execute Verification</button>
+                <button class="action-btn" id="verify-btn" onclick="verifyPrescription()">Check Prescription</button>
 
                 <div id="results-container" class="result-container">
                     <div id="status-banner" class="status-banner"></div>
@@ -368,6 +387,7 @@
                     <div class="result-item"><span class="result-label">Flag</span><span id="out-flag"></span></div>
                     <div class="result-item"><span class="result-label">Analysis</span><span id="out-desc"></span></div>
                     <div class="result-item"><span class="result-label">Protocol</span><span id="out-rec"></span></div>
+                    <div class="disclaimer"><i class="fas fa-exclamation-triangle"></i> <strong>Disclaimer:</strong> AI output is for decision support only. A licensed pharmacist must verify all clinical recommendations before dispensing.</div>
                 </div>
             </div>
         </div>
@@ -375,7 +395,7 @@
         <!-- VIEW 2: PHARM CALCULATOR -->
         <div id="calculator" class="view-panel">
             <div class="panel-card">
-                <h2>Pharm Calculator</h2>
+                <h2>Compounding</h2>
                 <div class="crud-form-grid">
                     <div>
                         <label>Preparation Type</label>
@@ -391,13 +411,14 @@
                     <div><label>Target Concentration</label><input type="text" id="calc-conc" placeholder="e.g. 2.5%"></div>
                 </div>
                 
-                <button class="action-btn" id="calc-btn" onclick="calculateFormulation()">Synthesize Formula</button>
+                <button class="action-btn" id="calc-btn" onclick="calculateFormulation()">Calculate Formulation</button>
 
                 <div id="calc-results" class="result-container">
                     <div class="result-item"><span class="result-label">Active Ingredient Requirement</span><span id="out-active-amt" style="font-size:1.5em; color:var(--accent-yellow); font-weight:600;"></span></div>
                     <div class="result-item"><span class="result-label">Base / Excipient Requirement</span><span id="out-base-amt" style="font-size:1.5em; color:var(--accent-green); font-weight:600;"></span></div>
                     <div class="result-item"><span class="result-label">Compounding Instructions</span><span id="out-instructions"></span></div>
                     <div class="result-item"><span class="result-label">AI Clinical Feedback</span><span id="out-feedback"></span></div>
+                    <div class="disclaimer"><i class="fas fa-exclamation-triangle"></i> <strong>Disclaimer:</strong> AI-generated compounding formulations must be verified by a licensed pharmacist for clinical safety, vehicle stability, and appropriateness.</div>
                 </div>
             </div>
         </div>
@@ -405,14 +426,14 @@
         <!-- VIEW 3: CLINICAL DECISION SUPPORT -->
         <div id="clinical" class="view-panel">
             <div class="panel-card">
-                <h2>Clinical Support</h2>
-                <label>Target Patient ID (Optional for context)</label>
-                <input type="text" id="clin-id" placeholder="e.g. PT-001">
+                <h2>Decision Support</h2>
+                <label>Target Patient ID (Optional)</label>
+                <input type="text" id="clin-id" placeholder="Select or type ID..." list="global-patient-list" autocomplete="off">
                 
                 <label>Diagnosis / Condition</label>
                 <input type="text" id="clin-diag" placeholder="e.g. Severe hypertension with persistent cough">
                 
-                <button class="action-btn" id="clin-btn" onclick="getClinicalSupport()">Query AI Support Matrix</button>
+                <button class="action-btn" id="clin-btn" onclick="getClinicalSupport()">Query Support Matrix</button>
 
                 <div id="clin-results" class="result-container">
                     <div class="result-item">
@@ -421,6 +442,7 @@
                     </div>
                     <div class="result-item"><span class="result-label">Contraindications / Warnings</span><span id="out-contra" style="color:var(--accent-yellow);"></span></div>
                     <div class="result-item"><span class="result-label">Clinical Guidance</span><span id="out-guidance"></span></div>
+                    <div class="disclaimer"><i class="fas fa-exclamation-triangle"></i> <strong>Disclaimer:</strong> AI output is for decision support only. A licensed pharmacist must verify all clinical recommendations before dispensing.</div>
                 </div>
             </div>
         </div>
@@ -428,18 +450,38 @@
         <!-- VIEW 4: DATABASE CRUD -->
         <div id="database" class="view-panel">
             <div class="panel-card">
-                <h2>Data Matrix Control</h2>
-                <div class="crud-form-grid">
+                <h2>Patient Records</h2>
+                <div id="readonly-warning" class="readonly-note"><i class="fas fa-lock"></i> <strong>Read-only access:</strong> You do not have administrator privileges to edit or delete patient records.</div>
+                
+                <div class="crud-form-grid" id="crud-form">
                     <div><label>Patient ID</label><input type="text" id="db-id" placeholder="e.g. PT-002"></div>
                     <div><label>Full Name</label><input type="text" id="db-name" placeholder="Name"></div>
                     <div><label>Age</label><input type="number" id="db-age" placeholder="Age"></div>
-                    <div><label>Allergies</label><input type="text" id="db-allergies" placeholder="e.g. None"></div>
+                    <div><label>Allergies (Comma separated)</label><input type="text" id="db-allergies" placeholder="e.g. Penicillin, Peanuts"></div>
                 </div>
-                <label>Current Medications</label>
-                <input type="text" id="db-meds" placeholder="e.g. Lisinopril 10mg">
-                
-                <button class="action-btn" onclick="savePatient()">Upsert Record to Matrix</button>
+                <div id="crud-meds-form">
+                    <label>Current Medications (Comma separated)</label>
+                    <input type="text" id="db-meds" placeholder="e.g. Lisinopril 10mg, Metformin">
+                    <button class="action-btn" id="crud-save-btn" onclick="savePatient()">Save Patient Record</button>
+                </div>
 
+                <div style="overflow-x: auto; margin-top: 30px;">
+                    <table>
+                        <thead>
+                            <tr><th>ID</th><th>Name</th><th>Age</th><th>Allergies</th><th>Medications</th><th class="admin-only-col">Actions</th></tr>
+                        </thead>
+                        <tbody id="patients-table-body">
+                            <!-- Rows populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- VIEW 5: SYSTEM LOGS -->
+        <div id="logs" class="view-panel">
+            <div class="panel-card">
+                <h2>Audit Logs</h2>
                 <div style="overflow-x: auto;">
                     <table>
                         <thead>
@@ -477,6 +519,23 @@
         const API_BASE = (window.location.protocol === 'blob:' || window.location.protocol === 'file:' || window.location.hostname.includes('usercontent')) 
             ? 'https://pharmindai.onrender.com/api' 
             : '/api';
+
+        // --- MOCK AUTHENTICATION STATE ---
+        // (Step 1 of backend migration: UI reacts to this object)
+        const currentUser = {
+            name: "Dr. Mark Kigen",
+            role: "admin" // Change this to "user" to test the read-only UI features!
+        };
+        
+        // Apply Role UI on load
+        document.getElementById('user-role-badge').innerHTML = `<i class="fas ${currentUser.role === 'admin' ? 'fa-user-shield' : 'fa-user'}"></i> Signed in as ${currentUser.name} &middot; ${currentUser.role.toUpperCase()}`;
+        if(currentUser.role !== 'admin') {
+            document.getElementById('readonly-warning').style.display = 'block';
+            document.getElementById('crud-form').style.display = 'none';
+            document.getElementById('crud-meds-form').style.display = 'none';
+        }
+
+        let cachedPatients = []; // For dropdowns and previews
 
         // --- UI & ANIMATION LOGIC ---
         const sidebar = document.getElementById('sidebar');
@@ -581,11 +640,15 @@
                 document.getElementById('out-rec').innerText = ai.recommendation;
 
                 const banner = document.getElementById('status-banner');
-                banner.innerText = `STATUS: ${ai.status}`;
+                let icon = 'fa-check-circle';
+                if(ai.status === 'WARNING') icon = 'fa-exclamation-triangle';
+                if(ai.status === 'CRITICAL') icon = 'fa-skull-crossbones';
+                
+                banner.innerHTML = `<i class="fas ${icon}"></i> STATUS: ${ai.status}`;
                 banner.className = `status-banner status-${ai.status}`;
                 res.style.display = "block";
             } catch (e) { alert("Core Error: " + e.message); } 
-            finally { btn.disabled = false; btn.innerText = "Execute Verification"; }
+            finally { btn.disabled = false; btn.innerText = "Check Prescription"; }
         }
 
         async function calculateFormulation() {
@@ -599,7 +662,7 @@
             const btn = document.getElementById('calc-btn');
             const res = document.getElementById('calc-results');
             
-            btn.disabled = true; btn.innerText = "Synthesizing...";
+            btn.disabled = true; btn.innerText = "Calculating Formulation...";
             res.style.display = "none";
 
             try {
@@ -618,7 +681,7 @@
                 
                 res.style.display = "block";
             } catch (e) { alert("Calculation Error: " + e.message); } 
-            finally { btn.disabled = false; btn.innerText = "Synthesize Formula"; }
+            finally { btn.disabled = false; btn.innerText = "Calculate Formulation"; }
         }
 
         async function getClinicalSupport() {
@@ -629,7 +692,7 @@
 
             if (!diag) return alert("ERR: Diagnosis required.");
 
-            btn.disabled = true; btn.innerText = "Analyzing Matrix...";
+            btn.disabled = true; btn.innerText = "Querying Support Matrix...";
             res.style.display = "none";
 
             try {
@@ -655,29 +718,66 @@
                 
                 res.style.display = "block";
             } catch (e) { alert("Decision Support Error: " + e.message); } 
-            finally { btn.disabled = false; btn.innerText = "Query AI Support Matrix"; }
+            finally { btn.disabled = false; btn.innerText = "Query Support Matrix"; }
+        }
+
+        // Previews patient info in the Scanner HUD when ID is typed/selected
+        function previewPatientInfo(id) {
+            const previewDiv = document.getElementById('scan-patient-preview');
+            const patient = cachedPatients.find(p => p.Patient_ID === id);
+            if(patient) {
+                previewDiv.style.display = 'block';
+                previewDiv.innerHTML = `<strong>${patient.Full_Name}</strong> (${patient.Age} yrs) <br> <i class="fas fa-allergies" style="color:var(--accent-red); margin-top:8px;"></i> Allergies: ${patient.Known_Allergies} <br> <i class="fas fa-pills" style="color:var(--primary); margin-top:5px;"></i> Meds: ${patient.Current_Medications}`;
+            } else {
+                previewDiv.style.display = 'none';
+            }
         }
 
         async function fetchPatients() {
             try {
                 const response = await fetch(`${API_BASE}/patients`);
-                const patients = await response.json();
+                cachedPatients = await response.json();
+                
+                // Populate Datalist
+                const datalist = document.getElementById('global-patient-list');
+                datalist.innerHTML = '';
+                
                 const tbody = document.getElementById('patients-table-body');
                 tbody.innerHTML = '';
                 
-                patients.forEach(p => {
-                    tbody.innerHTML += `
-                        <tr>
-                            <td>${p.Patient_ID}</td>
-                            <td>${p.Full_Name}</td>
-                            <td>${p.Known_Allergies}</td>
-                            <td style="white-space:nowrap;">
+                // Hide actions column for non-admins
+                const adminCols = document.querySelectorAll('.admin-only-col');
+                adminCols.forEach(col => col.style.display = currentUser.role === 'admin' ? 'table-cell' : 'none');
+
+                cachedPatients.forEach(p => {
+                    // Add to datalist
+                    const option = document.createElement('option');
+                    option.value = p.Patient_ID;
+                    option.textContent = p.Full_Name;
+                    datalist.appendChild(option);
+
+                    // Add to table
+                    let actionsHtml = currentUser.role === 'admin' 
+                        ? `<td style="white-space:nowrap;" class="admin-only-col">
                                 <button class="crud-btn" onclick="loadIntoForm('${p.Patient_ID}', '${p.Full_Name}', ${p.Age}, '${p.Known_Allergies}', '${p.Current_Medications}')">Edit</button>
                                 <button class="crud-btn delete" onclick="deletePatient('${p.Patient_ID}')">Del</button>
-                            </td>
+                           </td>`
+                        : '';
+
+                    tbody.innerHTML += `
+                        <tr>
+                            <td><strong>${p.Patient_ID}</strong></td>
+                            <td>${p.Full_Name}</td>
+                            <td>${p.Age}</td>
+                            <td>${p.Known_Allergies}</td>
+                            <td>${p.Current_Medications}</td>
+                            ${actionsHtml}
                         </tr>
                     `;
                 });
+
+                // Trigger preview update if scanner is populated
+                previewPatientInfo(document.getElementById('scan-id').value);
             } catch(e) { console.error(e); }
         }
 
@@ -690,6 +790,7 @@
         }
 
         async function savePatient() {
+            if(currentUser.role !== 'admin') return alert("Unauthorized. Admin access required.");
             const id = document.getElementById('db-id').value.trim();
             const name = document.getElementById('db-name').value.trim();
             const ageVal = document.getElementById('db-age').value;
@@ -732,9 +833,15 @@
         }
 
         async function deletePatient(id) {
-            if(confirm(`Purge Subject ${id} from Matrix?`)) {
+            if(currentUser.role !== 'admin') return alert("Unauthorized. Admin access required.");
+            
+            const input = prompt(`To permanently delete this record, type the exact Patient ID: ${id}`);
+            if(input === id) {
                 await fetch(`${API_BASE}/patients/${id}`, { method: 'DELETE' });
                 fetchPatients();
+                alert(`Record ${id} permanently deleted.`);
+            } else if (input !== null) {
+                alert("ID did not match. Deletion canceled.");
             }
         }
 
