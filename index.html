@@ -3,340 +3,556 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PharmaMind | Neural Interface</title>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Rajdhani:wght@500;700&display=swap" rel="stylesheet">
+    <title>PharmindAI | Clinical Matrix</title>
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Orbitron:wght@500;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
     <style>
         :root {
-            --neon-cyan: #00f3ff;
-            --neon-green: #39ff14;
-            --neon-red: #ff003c;
-            --neon-yellow: #ffea00;
-            --dark-bg: #050914;
-            --panel-bg: rgba(10, 15, 30, 0.7);
-            --text-main: #e0e6ed;
+            --bg-dark: #050914;
+            --primary: #00f3ff;
+            --primary-dim: rgba(0, 243, 255, 0.15);
+            --accent-green: #39ff14;
+            --accent-red: #ff003c;
+            --accent-yellow: #ffea00;
+            --text-main: #f0f4f8;
+            --text-muted: #8fa3b0;
+            --glass-bg: rgba(10, 15, 30, 0.65);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --sidebar-width: 260px;
+            --sidebar-collapsed: 80px;
+            --transition-speed: 0.4s;
         }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
 
         body {
-            font-family: 'Rajdhani', sans-serif;
-            background-color: var(--dark-bg);
-            background-image: 
-                linear-gradient(rgba(0, 243, 255, 0.05) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(0, 243, 255, 0.05) 1px, transparent 1px);
-            background-size: 30px 30px;
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-dark);
             color: var(--text-main);
-            margin: 0;
-            padding: 50px 20px;
+            overflow: hidden; /* Prevent body scroll, handle in main content */
             display: flex;
-            justify-content: center;
-            align-items: flex-start;
-            min-height: 100vh;
+            height: 100vh;
         }
 
-        .dashboard {
-            background: var(--panel-bg);
+        /* --- BACKGROUND SLIDESHOW & PARALLAX --- */
+        .bg-container {
+            position: fixed;
+            top: -5%; left: -5%; width: 110%; height: 110%;
+            z-index: -2;
+            transition: transform 0.1s ease-out;
+        }
+
+        .bg-slide {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-size: cover;
+            background-position: center;
+            opacity: 0;
+            transition: opacity 1s ease-in-out;
+        }
+
+        .bg-slide.active { opacity: 1; }
+
+        .bg-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: linear-gradient(135deg, rgba(5, 9, 20, 0.9) 0%, rgba(10, 15, 30, 0.7) 100%);
+            backdrop-filter: blur(8px);
+            z-index: -1;
+        }
+
+        /* --- SIDEBAR NAVIGATION --- */
+        .sidebar {
+            width: var(--sidebar-width);
+            height: 100%;
+            background: var(--glass-bg);
+            border-right: 1px solid var(--glass-border);
+            display: flex;
+            flex-direction: column;
+            transition: width var(--transition-speed) cubic-bezier(0.4, 0, 0.2, 1);
             backdrop-filter: blur(12px);
-            border: 1px solid rgba(0, 243, 255, 0.2);
-            box-shadow: 0 0 30px rgba(0, 243, 255, 0.1), inset 0 0 20px rgba(0, 243, 255, 0.05);
+            z-index: 100;
+        }
+
+        .sidebar.collapsed { width: var(--sidebar-collapsed); }
+
+        .sidebar-header {
+            padding: 30px 20px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            overflow: hidden;
+            white-space: nowrap;
+        }
+
+        .sidebar-header i {
+            font-size: 1.8em;
+            color: var(--primary);
+            min-width: 40px;
+            text-align: center;
+            text-shadow: 0 0 10px var(--primary-dim);
+        }
+
+        .sidebar-header span {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.4em;
+            font-weight: 700;
+            letter-spacing: 1px;
+            transition: opacity 0.2s;
+        }
+
+        .sidebar.collapsed .sidebar-header span { opacity: 0; pointer-events: none; }
+
+        .nav-links { list-style: none; flex: 1; padding-top: 20px; overflow-y: auto; overflow-x: hidden; }
+        .nav-links::-webkit-scrollbar { display: none; }
+
+        .nav-links li {
+            padding: 15px 20px;
+            margin: 5px 15px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            cursor: pointer;
+            color: var(--text-muted);
+            transition: all 0.3s;
+            white-space: nowrap;
+        }
+
+        .nav-links li i { font-size: 1.2em; min-width: 30px; text-align: center; transition: color 0.3s; }
+        .nav-links li:hover { background: rgba(255,255,255,0.05); color: var(--text-main); }
+        .nav-links li.active { background: var(--primary-dim); color: var(--primary); border: 1px solid rgba(0,243,255,0.3); }
+
+        .sidebar.collapsed .nav-links li { margin: 5px 15px; justify-content: center; padding: 15px 0; }
+        .sidebar.collapsed .link-text { display: none; }
+
+        .sidebar-footer {
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            border-top: 1px solid var(--glass-border);
+        }
+
+        .sidebar-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 1.2em;
+            padding: 10px;
+            border-radius: 5px;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .sidebar-btn:hover { background: rgba(255,255,255,0.05); color: var(--primary); }
+        .sidebar.collapsed .sidebar-footer { justify-content: center; flex-direction: column; gap: 15px; }
+
+        /* --- MAIN CONTENT AREA --- */
+        .main-content {
+            flex: 1;
+            height: 100vh;
+            overflow-y: auto;
             padding: 40px;
-            border-radius: 15px;
-            width: 100%;
-            max-width: 800px;
             position: relative;
         }
 
-        .dashboard::before {
-            content: '';
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 4px;
-            background: var(--neon-cyan);
-            box-shadow: 0 0 15px var(--neon-cyan);
+        .view-panel { display: none; max-width: 900px; margin: 0 auto; animation: fadeUp 0.5s ease-out forwards; opacity: 0; transform: translateY(15px); }
+        .view-panel.active { display: block; }
+
+        @keyframes fadeUp { to { opacity: 1; transform: translateY(0); } }
+
+        /* Panel Glassmorphism */
+        .panel-card {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            padding: 40px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+            backdrop-filter: blur(16px);
         }
 
-        h2 {
+        h2 { font-family: 'Orbitron', sans-serif; color: var(--primary); margin-bottom: 30px; font-size: 1.8em; letter-spacing: 1.5px; text-transform: uppercase; }
+        h3 { font-family: 'Orbitron', sans-serif; color: var(--text-main); margin-bottom: 20px; font-size: 1.4em; }
+
+        /* Welcome Screen */
+        .welcome-hero { text-align: center; padding: 20px 0 40px; }
+        .welcome-hero h1 { font-family: 'Orbitron', sans-serif; font-size: 3em; color: #fff; margin-bottom: 20px; text-shadow: 0 0 20px rgba(0,243,255,0.4); }
+        .welcome-hero p { font-size: 1.2em; color: var(--text-muted); max-width: 600px; margin: 0 auto 40px; line-height: 1.6; }
+        
+        .features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 40px; }
+        .feature-card { background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border); padding: 25px; border-radius: 12px; text-align: left; transition: transform 0.3s; }
+        .feature-card:hover { transform: translateY(-5px); border-color: var(--primary-dim); background: rgba(0,243,255,0.05); }
+        .feature-card i { font-size: 2em; color: var(--primary); margin-bottom: 15px; }
+        .feature-card h4 { font-family: 'Orbitron', sans-serif; margin-bottom: 10px; font-size: 1.1em; }
+        .feature-card p { font-size: 0.9em; color: var(--text-muted); line-height: 1.5; }
+
+        .cta-btn {
+            background: var(--primary);
+            color: var(--bg-dark);
+            border: none;
+            padding: 15px 40px;
+            font-size: 1.1em;
             font-family: 'Orbitron', sans-serif;
-            margin-top: 0;
-            color: var(--neon-cyan);
-            font-size: 1.8em;
-            letter-spacing: 2px;
-            text-transform: uppercase;
-            text-shadow: 0 0 10px rgba(0, 243, 255, 0.5);
-        }
-
-        .nav-tabs {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 25px;
-            border-bottom: 1px solid rgba(0, 243, 255, 0.3);
-            padding-bottom: 15px;
-            flex-wrap: wrap;
-        }
-
-        .tab-btn {
-            background: transparent;
-            color: #8fa3b0;
-            border: 1px solid transparent;
-            padding: 8px 15px;
-            font-family: 'Orbitron', sans-serif;
+            font-weight: 700;
+            border-radius: 8px;
             cursor: pointer;
-            border-radius: 4px;
+            transition: all 0.3s;
+            box-shadow: 0 0 20px var(--primary-dim);
+        }
+        .cta-btn:hover { box-shadow: 0 0 30px rgba(0,243,255,0.4); transform: scale(1.05); }
+
+        /* Form Controls */
+        label { display: block; margin-bottom: 8px; font-size: 0.85em; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; font-weight: 600; }
+        input, select {
+            width: 100%; padding: 14px; margin-bottom: 25px;
+            background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px; color: #fff; font-family: 'Inter', sans-serif; font-size: 1.1em;
             transition: all 0.3s;
         }
-
-        .tab-btn.active {
-            color: var(--neon-cyan);
-            border: 1px solid var(--neon-cyan);
-            box-shadow: 0 0 10px rgba(0, 243, 255, 0.2) inset;
-        }
-
-        .view-panel { display: none; }
-        .view-panel.active { display: block; animation: fadeIn 0.4s ease-out; }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(5px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 700;
-            font-size: 1em;
-            color: #8fa3b0;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-
-        input[type="text"], input[type="number"], select {
-            width: 100%;
-            padding: 10px;
-            margin-bottom: 20px;
-            background: rgba(0, 0, 0, 0.5);
-            border: 1px solid #334;
-            border-radius: 5px;
-            color: var(--neon-cyan);
-            font-family: 'Rajdhani', sans-serif;
-            font-size: 1.2em;
-            box-sizing: border-box;
-        }
-
-        input:focus, select:focus {
-            outline: none;
-            border-color: var(--neon-cyan);
-            box-shadow: 0 0 8px rgba(0, 243, 255, 0.3);
-        }
-
-        button.action-btn {
-            width: 100%;
-            background: transparent;
-            color: var(--neon-cyan);
-            border: 1px solid var(--neon-cyan);
-            padding: 12px;
-            border-radius: 5px;
-            font-family: 'Orbitron', sans-serif;
-            font-size: 1.1em;
-            text-transform: uppercase;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            box-shadow: 0 0 10px rgba(0, 243, 255, 0.1) inset;
-        }
-
-        button.action-btn:hover {
-            background: var(--neon-cyan);
-            color: #000;
-            box-shadow: 0 0 15px var(--neon-cyan);
-        }
+        input:focus, select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 15px rgba(0,243,255,0.2); background: rgba(0,0,0,0.6); }
         
-        button:disabled {
-            border-color: #555;
-            color: #555;
-            cursor: not-allowed;
-            box-shadow: none;
+        .action-btn {
+            width: 100%; background: transparent; color: var(--primary); border: 1px solid var(--primary);
+            padding: 14px; border-radius: 8px; font-family: 'Orbitron', sans-serif; font-size: 1.1em; font-weight: 700;
+            text-transform: uppercase; cursor: pointer; transition: all 0.3s;
         }
+        .action-btn:hover { background: var(--primary); color: var(--bg-dark); box-shadow: 0 0 20px rgba(0,243,255,0.3); }
+        .action-btn:disabled { border-color: #444; color: #555; cursor: not-allowed; background: transparent; box-shadow: none; }
 
-        /* DB Table Styles */
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-            font-size: 1.1em;
-        }
+        .crud-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; }
 
-        th, td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid rgba(0, 243, 255, 0.2);
-        }
-
-        th {
-            font-family: 'Orbitron', sans-serif;
-            color: var(--neon-cyan);
-            text-transform: uppercase;
-            font-size: 0.9em;
-        }
-
-        .crud-btn {
-            background: transparent;
-            border: 1px solid #8fa3b0;
-            color: #8fa3b0;
-            padding: 5px 10px;
-            cursor: pointer;
-            border-radius: 3px;
-            font-family: 'Rajdhani', sans-serif;
-            font-weight: bold;
-            margin-right: 5px;
-        }
-
-        .crud-btn:hover { border-color: var(--neon-cyan); color: var(--neon-cyan); }
-        .crud-btn.delete:hover { border-color: var(--neon-red); color: var(--neon-red); }
-
-        .crud-form-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 15px;
-        }
-
-        /* Results Display */
-        #results-container, #calc-results, #clin-results { margin-top: 30px; display: none; }
-        .status-banner {
-            font-family: 'Orbitron', sans-serif;
-            padding: 15px; border-radius: 5px; font-weight: bold; text-align: center;
-            font-size: 1.2em; letter-spacing: 2px; margin-bottom: 20px;
-        }
-        .status-SAFE { border: 2px solid var(--neon-green); color: var(--neon-green); box-shadow: 0 0 10px rgba(57, 255, 20, 0.2) inset; }
-        .status-WARNING { border: 2px solid var(--neon-yellow); color: var(--neon-yellow); box-shadow: 0 0 10px rgba(255, 234, 0, 0.2) inset; }
-        .status-CRITICAL { border: 2px solid var(--neon-red); color: var(--neon-red); box-shadow: 0 0 10px rgba(255, 0, 60, 0.2) inset; }
-        .result-item { background: rgba(0,0,0,0.4); padding: 12px; border-left: 2px solid var(--neon-cyan); margin-bottom: 10px; }
-        .result-label { font-family: 'Orbitron', sans-serif; font-size: 0.8em; color: var(--neon-cyan); text-transform: uppercase; display: block; margin-bottom: 5px;}
+        /* Results & Tables */
+        .result-container { margin-top: 30px; display: none; }
+        .status-banner { font-family: 'Orbitron', sans-serif; padding: 15px; border-radius: 8px; font-weight: bold; text-align: center; font-size: 1.2em; letter-spacing: 2px; margin-bottom: 20px; }
+        .status-SAFE { border: 1px solid var(--accent-green); color: var(--accent-green); background: rgba(57, 255, 20, 0.05); }
+        .status-WARNING { border: 1px solid var(--accent-yellow); color: var(--accent-yellow); background: rgba(255, 234, 0, 0.05); }
+        .status-CRITICAL { border: 1px solid var(--accent-red); color: var(--accent-red); background: rgba(255, 0, 60, 0.05); }
         
-        .log-safe { color: var(--neon-green); font-weight: bold; }
-        .log-warning { color: var(--neon-yellow); font-weight: bold; }
-        .log-critical { color: var(--neon-red); font-weight: bold; }
+        .result-item { background: rgba(0,0,0,0.3); padding: 15px; border-radius: 8px; border-left: 3px solid var(--primary); margin-bottom: 15px; }
+        .result-label { font-family: 'Inter', sans-serif; font-size: 0.75em; color: var(--primary); text-transform: uppercase; display: block; margin-bottom: 8px; font-weight: 600; letter-spacing: 1px;}
+        
+        table { width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 20px; font-size: 0.95em; }
+        th, td { padding: 15px; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        th { font-family: 'Orbitron', sans-serif; color: var(--primary); text-transform: uppercase; font-size: 0.85em; letter-spacing: 1px; }
+        tbody tr:hover { background: rgba(255,255,255,0.02); }
+
+        .crud-btn { background: transparent; border: 1px solid var(--text-muted); color: var(--text-muted); padding: 6px 12px; cursor: pointer; border-radius: 4px; font-family: 'Inter', sans-serif; font-size: 0.85em; transition: all 0.2s; margin-right: 5px; }
+        .crud-btn:hover { border-color: var(--primary); color: var(--primary); }
+        .crud-btn.delete:hover { border-color: var(--accent-red); color: var(--accent-red); }
+
+        /* Mobile Hamburger */
+        .mobile-nav-toggle { display: none; position: fixed; top: 20px; left: 20px; z-index: 1000; background: var(--glass-bg); border: 1px solid var(--glass-border); color: #fff; padding: 10px 15px; border-radius: 8px; cursor: pointer; backdrop-filter: blur(10px); }
+
+        @media (max-width: 768px) {
+            .mobile-nav-toggle { display: block; }
+            .sidebar { position: fixed; left: -260px; top: 0; box-shadow: 20px 0 50px rgba(0,0,0,0.5); }
+            .sidebar.mobile-active { left: 0; width: var(--sidebar-width); }
+            .main-content { padding: 80px 20px 20px; }
+            .crud-form-grid { grid-template-columns: 1fr; }
+        }
     </style>
 </head>
 <body>
 
-    <div class="dashboard">
-        <h2>PHARMAMIND // TERMINAL</h2>
+    <!-- Dynamic Background & Parallax -->
+    <div class="bg-container" id="bg-container">
+        <!-- Index 0: Welcome (Medical Lab) -->
+        <div class="bg-slide active" style="background-image: url('https://images.unsplash.com/photo-1530497610245-94d3c16cda28?auto=format&fit=crop&q=80');"></div>
+        <!-- Index 1: Scanner (Pharmacy/Pills) -->
+        <div class="bg-slide" style="background-image: url('https://images.unsplash.com/photo-1587854692152-cbe660dbde88?auto=format&fit=crop&q=80');"></div>
+        <!-- Index 2: Calc (Lab Glassware) -->
+        <div class="bg-slide" style="background-image: url('https://images.unsplash.com/photo-1532187863486-abf9dbad1b69?auto=format&fit=crop&q=80');"></div>
+        <!-- Index 3: Clinical (Stethoscope/Doc) -->
+        <div class="bg-slide" style="background-image: url('https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?auto=format&fit=crop&q=80');"></div>
+        <!-- Index 4: Data Matrix (Tech/Data) -->
+        <div class="bg-slide" style="background-image: url('https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&q=80');"></div>
+        <!-- Index 5: Logs (Code/Server) -->
+        <div class="bg-slide" style="background-image: url('https://images.unsplash.com/photo-1555949963-aa79dcee57d5?auto=format&fit=crop&q=80');"></div>
+    </div>
+    <div class="bg-overlay"></div>
+
+    <!-- Mobile Toggle -->
+    <button class="mobile-nav-toggle" id="mobile-toggle"><i class="fas fa-bars"></i></button>
+
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <i class="fas fa-network-wired logo-icon"></i>
+            <span class="logo-text">PharmindAI</span>
+        </div>
         
-        <div class="nav-tabs">
-            <button class="tab-btn active" onclick="switchTab('scanner')">Scanner HUD</button>
-            <button class="tab-btn" onclick="switchTab('calculator')">Pharm Calc</button>
-            <button class="tab-btn" onclick="switchTab('clinical')">Clinical Support</button>
-            <button class="tab-btn" onclick="switchTab('database'); fetchPatients();">Data Matrix</button>
-            <button class="tab-btn" onclick="switchTab('logs'); fetchLogs();">System Logs</button>
+        <ul class="nav-links">
+            <li class="nav-item active" data-target="welcome" data-bg="0">
+                <i class="fas fa-home"></i><span class="link-text">Overview</span>
+            </li>
+            <li class="nav-item" data-target="scanner" data-bg="1">
+                <i class="fas fa-barcode"></i><span class="link-text">Scanner HUD</span>
+            </li>
+            <li class="nav-item" data-target="calculator" data-bg="2">
+                <i class="fas fa-calculator"></i><span class="link-text">Pharm Calc</span>
+            </li>
+            <li class="nav-item" data-target="clinical" data-bg="3">
+                <i class="fas fa-notes-medical"></i><span class="link-text">Clinical Support</span>
+            </li>
+            <li class="nav-item" data-target="database" data-bg="4" onclick="fetchPatients()">
+                <i class="fas fa-database"></i><span class="link-text">Data Matrix</span>
+            </li>
+            <li class="nav-item" data-target="logs" data-bg="5" onclick="fetchLogs()">
+                <i class="fas fa-list-alt"></i><span class="link-text">System Logs</span>
+            </li>
+        </ul>
+
+        <div class="sidebar-footer">
+            <button class="sidebar-btn" id="collapse-btn" title="Toggle Sidebar">
+                <i class="fas fa-chevron-left" id="collapse-icon"></i>
+            </button>
+            <button class="sidebar-btn" id="pause-bg-btn" title="Toggle Background Parallax">
+                <i class="fas fa-pause" id="pause-icon"></i>
+            </button>
+        </div>
+    </aside>
+
+    <!-- Main Application View -->
+    <main class="main-content">
+        
+        <!-- VIEW 0: WELCOME SCREEN -->
+        <div id="welcome" class="view-panel active">
+            <div class="panel-card welcome-hero">
+                <h1>Welcome to PharmindAI</h1>
+                <p>Your intelligent pharmaceutical assistant. Instantly cross-reference drug interactions, calculate precise compounding formulations, and securely manage patient clinical data through an advanced AI matrix.</p>
+                
+                <div class="features-grid">
+                    <div class="feature-card">
+                        <i class="fas fa-shield-virus"></i>
+                        <h4>Safety Scanner</h4>
+                        <p>Automated AI screening against allergies and active medications to prevent adverse events.</p>
+                    </div>
+                    <div class="feature-card">
+                        <i class="fas fa-vial"></i>
+                        <h4>Master Compounder</h4>
+                        <p>Generate exact mathematical formulations and clinical stability guidelines instantly.</p>
+                    </div>
+                    <div class="feature-card">
+                        <i class="fas fa-server"></i>
+                        <h4>Cloud Matrix</h4>
+                        <p>Persistent, secure MySQL architecture storing encrypted patient and audit trail records.</p>
+                    </div>
+                </div>
+
+                <button class="cta-btn" onclick="document.querySelector('[data-target=\'scanner\']').click()">Initialize Terminal</button>
+            </div>
         </div>
 
         <!-- VIEW 1: SCANNER -->
-        <div id="scanner" class="view-panel active">
-            <label>Target Patient ID</label>
-            <input type="text" id="scan-id" value="PT-001">
-            <label>Prescription Input</label>
-            <input type="text" id="scan-med" value="Amoxicillin 500mg">
-            <button class="action-btn" id="verify-btn" onclick="verifyPrescription()">Execute Verification</button>
+        <div id="scanner" class="view-panel">
+            <div class="panel-card">
+                <h2>Scanner HUD</h2>
+                <label>Target Patient ID</label>
+                <input type="text" id="scan-id" value="PT-001" autocomplete="off">
+                
+                <label>Prescription Input</label>
+                <input type="text" id="scan-med" value="Amoxicillin 500mg" autocomplete="off">
+                
+                <button class="action-btn" id="verify-btn" onclick="verifyPrescription()">Execute Verification</button>
 
-            <div id="results-container">
-                <div id="status-banner" class="status-banner"></div>
-                <div class="result-item"><span class="result-label">Subject</span><span id="out-patient"></span></div>
-                <div class="result-item"><span class="result-label">Compound</span><span id="out-med"></span></div>
-                <div class="result-item"><span class="result-label">Flag</span><span id="out-flag"></span></div>
-                <div class="result-item"><span class="result-label">Analysis</span><span id="out-desc"></span></div>
-                <div class="result-item"><span class="result-label">Protocol</span><span id="out-rec"></span></div>
+                <div id="results-container" class="result-container">
+                    <div id="status-banner" class="status-banner"></div>
+                    <div class="result-item"><span class="result-label">Subject</span><span id="out-patient"></span></div>
+                    <div class="result-item"><span class="result-label">Compound</span><span id="out-med"></span></div>
+                    <div class="result-item"><span class="result-label">Flag</span><span id="out-flag"></span></div>
+                    <div class="result-item"><span class="result-label">Analysis</span><span id="out-desc"></span></div>
+                    <div class="result-item"><span class="result-label">Protocol</span><span id="out-rec"></span></div>
+                </div>
             </div>
         </div>
 
         <!-- VIEW 2: PHARM CALCULATOR -->
         <div id="calculator" class="view-panel">
-            <div class="crud-form-grid">
-                <div>
-                    <label>Preparation Type</label>
-                    <select id="calc-type">
-                        <option value="Ointment">Topical Ointment</option>
-                        <option value="Syrup">Oral Syrup</option>
-                        <option value="Capsule">Capsule Batch</option>
-                        <option value="Suspension">Suspension</option>
-                    </select>
+            <div class="panel-card">
+                <h2>Pharm Calculator</h2>
+                <div class="crud-form-grid">
+                    <div>
+                        <label>Preparation Type</label>
+                        <select id="calc-type">
+                            <option value="Ointment">Topical Ointment</option>
+                            <option value="Syrup">Oral Syrup</option>
+                            <option value="Capsule">Capsule Batch</option>
+                            <option value="Suspension">Suspension</option>
+                        </select>
+                    </div>
+                    <div><label>Target Vol/Weight</label><input type="text" id="calc-vol" placeholder="e.g. 100g or 250ml"></div>
+                    <div><label>Active Ingredient</label><input type="text" id="calc-active" placeholder="e.g. Hydrocortisone"></div>
+                    <div><label>Target Concentration</label><input type="text" id="calc-conc" placeholder="e.g. 2.5%"></div>
                 </div>
-                <div><label>Total Target Vol/Weight</label><input type="text" id="calc-vol" placeholder="e.g. 100g or 250ml"></div>
-                <div><label>Active Ingredient</label><input type="text" id="calc-active" placeholder="e.g. Hydrocortisone"></div>
-                <div><label>Target Concentration</label><input type="text" id="calc-conc" placeholder="e.g. 2.5%"></div>
-            </div>
-            
-            <button class="action-btn" id="calc-btn" onclick="calculateFormulation()">Synthesize Formula</button>
+                
+                <button class="action-btn" id="calc-btn" onclick="calculateFormulation()">Synthesize Formula</button>
 
-            <div id="calc-results">
-                <div class="result-item"><span class="result-label">Active Ingredient Requirement</span><span id="out-active-amt" style="font-size:1.5em; color:var(--neon-yellow);"></span></div>
-                <div class="result-item"><span class="result-label">Base / Excipient Requirement</span><span id="out-base-amt" style="font-size:1.5em; color:var(--neon-green);"></span></div>
-                <div class="result-item"><span class="result-label">Compounding Instructions</span><span id="out-instructions"></span></div>
-                <div class="result-item"><span class="result-label">AI Clinical Feedback</span><span id="out-feedback"></span></div>
+                <div id="calc-results" class="result-container">
+                    <div class="result-item"><span class="result-label">Active Ingredient Requirement</span><span id="out-active-amt" style="font-size:1.5em; color:var(--accent-yellow); font-weight:600;"></span></div>
+                    <div class="result-item"><span class="result-label">Base / Excipient Requirement</span><span id="out-base-amt" style="font-size:1.5em; color:var(--accent-green); font-weight:600;"></span></div>
+                    <div class="result-item"><span class="result-label">Compounding Instructions</span><span id="out-instructions"></span></div>
+                    <div class="result-item"><span class="result-label">AI Clinical Feedback</span><span id="out-feedback"></span></div>
+                </div>
             </div>
         </div>
 
         <!-- VIEW 3: CLINICAL DECISION SUPPORT -->
         <div id="clinical" class="view-panel">
-            <label>Target Patient ID (Optional for context)</label>
-            <input type="text" id="clin-id" placeholder="e.g. PT-001">
-            <label>Diagnosis / Condition</label>
-            <input type="text" id="clin-diag" placeholder="e.g. Severe hypertension with persistent cough">
-            <button class="action-btn" id="clin-btn" onclick="getClinicalSupport()">Query AI Support Matrix</button>
+            <div class="panel-card">
+                <h2>Clinical Support</h2>
+                <label>Target Patient ID (Optional for context)</label>
+                <input type="text" id="clin-id" placeholder="e.g. PT-001">
+                
+                <label>Diagnosis / Condition</label>
+                <input type="text" id="clin-diag" placeholder="e.g. Severe hypertension with persistent cough">
+                
+                <button class="action-btn" id="clin-btn" onclick="getClinicalSupport()">Query AI Support Matrix</button>
 
-            <div id="clin-results">
-                <div class="result-item">
-                    <span class="result-label">Primary Medication Suggestions</span>
-                    <ul id="out-sug-list" style="margin-top: 5px; padding-left: 20px;"></ul>
+                <div id="clin-results" class="result-container">
+                    <div class="result-item">
+                        <span class="result-label">Primary Medication Suggestions</span>
+                        <ul id="out-sug-list" style="margin-top: 8px; padding-left: 20px; line-height: 1.6;"></ul>
+                    </div>
+                    <div class="result-item"><span class="result-label">Contraindications / Warnings</span><span id="out-contra" style="color:var(--accent-yellow);"></span></div>
+                    <div class="result-item"><span class="result-label">Clinical Guidance</span><span id="out-guidance"></span></div>
                 </div>
-                <div class="result-item"><span class="result-label">Contraindications / Warnings</span><span id="out-contra" style="color:var(--neon-yellow);"></span></div>
-                <div class="result-item"><span class="result-label">Clinical Guidance</span><span id="out-guidance"></span></div>
             </div>
         </div>
 
         <!-- VIEW 4: DATABASE CRUD -->
         <div id="database" class="view-panel">
-            <div class="crud-form-grid">
-                <div><label>Patient ID</label><input type="text" id="db-id" placeholder="e.g. PT-002"></div>
-                <div><label>Full Name</label><input type="text" id="db-name" placeholder="Name"></div>
-                <div><label>Age</label><input type="number" id="db-age" placeholder="Age"></div>
-                <div><label>Allergies</label><input type="text" id="db-allergies" placeholder="e.g. None"></div>
-            </div>
-            <label>Current Medications</label>
-            <input type="text" id="db-meds" placeholder="e.g. Lisinopril 10mg">
-            
-            <button class="action-btn" onclick="savePatient()">Upsert Record to Matrix</button>
+            <div class="panel-card">
+                <h2>Data Matrix Control</h2>
+                <div class="crud-form-grid">
+                    <div><label>Patient ID</label><input type="text" id="db-id" placeholder="e.g. PT-002"></div>
+                    <div><label>Full Name</label><input type="text" id="db-name" placeholder="Name"></div>
+                    <div><label>Age</label><input type="number" id="db-age" placeholder="Age"></div>
+                    <div><label>Allergies</label><input type="text" id="db-allergies" placeholder="e.g. None"></div>
+                </div>
+                <label>Current Medications</label>
+                <input type="text" id="db-meds" placeholder="e.g. Lisinopril 10mg">
+                
+                <button class="action-btn" onclick="savePatient()">Upsert Record to Matrix</button>
 
-            <table>
-                <thead>
-                    <tr><th>ID</th><th>Name</th><th>Allergies</th><th>Actions</th></tr>
-                </thead>
-                <tbody id="patients-table-body">
-                    <!-- Rows populated by JS -->
-                </tbody>
-            </table>
+                <div style="overflow-x: auto;">
+                    <table>
+                        <thead>
+                            <tr><th>ID</th><th>Name</th><th>Allergies</th><th>Actions</th></tr>
+                        </thead>
+                        <tbody id="patients-table-body">
+                            <!-- Rows populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
 
         <!-- VIEW 5: SYSTEM LOGS -->
         <div id="logs" class="view-panel">
-            <table>
-                <thead>
-                    <tr><th>Log ID</th><th>Timestamp</th><th>Patient ID</th><th>Medication</th><th>Status</th></tr>
-                </thead>
-                <tbody id="logs-table-body">
-                    <!-- Rows populated by JS -->
-                </tbody>
-            </table>
+            <div class="panel-card">
+                <h2>System Audit Logs</h2>
+                <div style="overflow-x: auto;">
+                    <table>
+                        <thead>
+                            <tr><th>Log ID</th><th>Timestamp</th><th>Patient ID</th><th>Medication</th><th>Status</th></tr>
+                        </thead>
+                        <tbody id="logs-table-body">
+                            <!-- Rows populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
-    </div>
+
+    </main>
 
     <script>
-        const API_BASE = '/api';
+        // Use your live Render URL for previews, and relative path for the actual Flask deployment
+        const API_BASE = (window.location.protocol === 'blob:' || window.location.protocol === 'file:' || window.location.hostname.includes('usercontent')) 
+            ? 'https://pharmindai.onrender.com/api' 
+            : '/api';
 
-        // UI Toggle
-        function switchTab(tabId) {
-            document.querySelectorAll('.view-panel').forEach(p => p.classList.remove('active'));
-            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-            document.getElementById(tabId).classList.add('active');
-            event.target.classList.add('active');
+        // --- UI & ANIMATION LOGIC ---
+        const sidebar = document.getElementById('sidebar');
+        const collapseBtn = document.getElementById('collapse-btn');
+        const collapseIcon = document.getElementById('collapse-icon');
+        const mobileToggle = document.getElementById('mobile-toggle');
+        const bgContainer = document.getElementById('bg-container');
+        const pauseBgBtn = document.getElementById('pause-bg-btn');
+        const pauseIcon = document.getElementById('pause-icon');
+        
+        let parallaxEnabled = true;
+
+        // Restore Sidebar State
+        if (localStorage.getItem('pharmind_sidebar') === 'collapsed') {
+            sidebar.classList.add('collapsed');
+            collapseIcon.classList.replace('fa-chevron-left', 'fa-chevron-right');
         }
 
-        // --- SCANNER LOGIC ---
+        // Sidebar Toggle Desktop
+        collapseBtn.addEventListener('click', () => {
+            sidebar.classList.toggle('collapsed');
+            const isCollapsed = sidebar.classList.contains('collapsed');
+            localStorage.setItem('pharmind_sidebar', isCollapsed ? 'collapsed' : 'expanded');
+            collapseIcon.className = isCollapsed ? 'fas fa-chevron-right' : 'fas fa-chevron-left';
+        });
+
+        // Sidebar Toggle Mobile
+        mobileToggle.addEventListener('click', () => {
+            sidebar.classList.toggle('mobile-active');
+        });
+
+        // Parallax Effect
+        document.addEventListener('mousemove', (e) => {
+            if (!parallaxEnabled) return;
+            const x = (e.clientX / window.innerWidth - 0.5) * 30; 
+            const y = (e.clientY / window.innerHeight - 0.5) * 30;
+            bgContainer.style.transform = `translate(${x}px, ${y}px) scale(1.05)`;
+        });
+
+        // Pause Parallax
+        pauseBgBtn.addEventListener('click', () => {
+            parallaxEnabled = !parallaxEnabled;
+            pauseIcon.className = parallaxEnabled ? 'fas fa-pause' : 'fas fa-play';
+            if (!parallaxEnabled) bgContainer.style.transform = `translate(0px, 0px) scale(1.05)`;
+        });
+
+        // Tab Switching & Background Updating
+        const navItems = document.querySelectorAll('.nav-item');
+        const viewPanels = document.querySelectorAll('.view-panel');
+        const bgSlides = document.querySelectorAll('.bg-slide');
+
+        navItems.forEach(item => {
+            item.addEventListener('click', function() {
+                // Update Nav Active State
+                navItems.forEach(nav => nav.classList.remove('active'));
+                this.classList.add('active');
+
+                // Switch View Panel
+                const target = this.getAttribute('data-target');
+                viewPanels.forEach(panel => panel.classList.remove('active'));
+                document.getElementById(target).classList.add('active');
+
+                // Switch Background Slide
+                const bgIndex = this.getAttribute('data-bg');
+                bgSlides.forEach(slide => slide.classList.remove('active'));
+                if(bgSlides[bgIndex]) bgSlides[bgIndex].classList.add('active');
+
+                // Close mobile menu if open
+                if(window.innerWidth <= 768) {
+                    sidebar.classList.remove('mobile-active');
+                }
+            });
+        });
+
+        // --- API & CORE LOGIC (Integrated from previous setup) ---
+        
         async function verifyPrescription() {
             const pid = document.getElementById('scan-id').value;
             const med = document.getElementById('scan-med').value;
@@ -345,7 +561,7 @@
             
             if (!pid || !med) return alert("ERR: Missing parameters.");
             
-            btn.disabled = true; btn.innerText = "Processing...";
+            btn.disabled = true; btn.innerText = "Processing Data...";
             res.style.display = "none";
 
             try {
@@ -372,7 +588,6 @@
             finally { btn.disabled = false; btn.innerText = "Execute Verification"; }
         }
 
-        // --- PHARM CALCULATOR LOGIC ---
         async function calculateFormulation() {
             const prepType = document.getElementById('calc-type').value;
             const vol = document.getElementById('calc-vol').value;
@@ -384,7 +599,7 @@
             const btn = document.getElementById('calc-btn');
             const res = document.getElementById('calc-results');
             
-            btn.disabled = true; btn.innerText = "Calculating Formula...";
+            btn.disabled = true; btn.innerText = "Synthesizing...";
             res.style.display = "none";
 
             try {
@@ -406,16 +621,15 @@
             finally { btn.disabled = false; btn.innerText = "Synthesize Formula"; }
         }
 
-        // --- CLINICAL SUPPORT LOGIC ---
         async function getClinicalSupport() {
             const pid = document.getElementById('clin-id').value;
             const diag = document.getElementById('clin-diag').value;
             const btn = document.getElementById('clin-btn');
             const res = document.getElementById('clin-results');
 
-            if (!diag) return alert("ERR: Diagnosis is required for decision support.");
+            if (!diag) return alert("ERR: Diagnosis required.");
 
-            btn.disabled = true; btn.innerText = "Analyzing Clinical Matrix...";
+            btn.disabled = true; btn.innerText = "Analyzing Matrix...";
             res.style.display = "none";
 
             try {
@@ -428,7 +642,6 @@
 
                 const ai = data.decision_support;
                 
-                // Populate suggestions list
                 const ul = document.getElementById('out-sug-list');
                 ul.innerHTML = '';
                 ai.primary_suggestions.forEach(sug => {
@@ -445,26 +658,27 @@
             finally { btn.disabled = false; btn.innerText = "Query AI Support Matrix"; }
         }
 
-        // --- CRUD LOGIC ---
         async function fetchPatients() {
-            const response = await fetch(`${API_BASE}/patients`);
-            const patients = await response.json();
-            const tbody = document.getElementById('patients-table-body');
-            tbody.innerHTML = '';
-            
-            patients.forEach(p => {
-                tbody.innerHTML += `
-                    <tr>
-                        <td>${p.Patient_ID}</td>
-                        <td>${p.Full_Name}</td>
-                        <td>${p.Known_Allergies}</td>
-                        <td>
-                            <button class="crud-btn" onclick="loadIntoForm('${p.Patient_ID}', '${p.Full_Name}', ${p.Age}, '${p.Known_Allergies}', '${p.Current_Medications}')">Edit</button>
-                            <button class="crud-btn delete" onclick="deletePatient('${p.Patient_ID}')">Del</button>
-                        </td>
-                    </tr>
-                `;
-            });
+            try {
+                const response = await fetch(`${API_BASE}/patients`);
+                const patients = await response.json();
+                const tbody = document.getElementById('patients-table-body');
+                tbody.innerHTML = '';
+                
+                patients.forEach(p => {
+                    tbody.innerHTML += `
+                        <tr>
+                            <td>${p.Patient_ID}</td>
+                            <td>${p.Full_Name}</td>
+                            <td>${p.Known_Allergies}</td>
+                            <td style="white-space:nowrap;">
+                                <button class="crud-btn" onclick="loadIntoForm('${p.Patient_ID}', '${p.Full_Name}', ${p.Age}, '${p.Known_Allergies}', '${p.Current_Medications}')">Edit</button>
+                                <button class="crud-btn delete" onclick="deletePatient('${p.Patient_ID}')">Del</button>
+                            </td>
+                        </tr>
+                    `;
+                });
+            } catch(e) { console.error(e); }
         }
 
         function loadIntoForm(id, name, age, allergies, meds) {
@@ -482,56 +696,39 @@
             const allergies = document.getElementById('db-allergies').value.trim();
             const meds = document.getElementById('db-meds').value.trim();
 
-            // 1. Strict Validation
-            if (!id || !name || !ageVal) {
-                return alert("ERR: Patient ID, Full Name, and Age are required fields.");
-            }
+            if (!id || !name || !ageVal) return alert("ERR: ID, Name, and Age are required.");
 
             const payload = {
-                patient_id: id,
-                full_name: name,
-                age: parseInt(ageVal),
-                allergies: allergies || "None",
-                medications: meds || "None"
+                patient_id: id, full_name: name, age: parseInt(ageVal),
+                allergies: allergies || "None", medications: meds || "None"
             };
 
             try {
-                // 2. Check if patient exists for Upsert (POST vs PUT)
-                const exists = await fetch(`${API_BASE}/patients`)
-                    .then(r => r.json())
-                    .then(data => data.some(p => p.Patient_ID === id));
-                
+                const exists = await fetch(`${API_BASE}/patients`).then(r => r.json()).then(data => data.some(p => p.Patient_ID === id));
                 const method = exists ? 'PUT' : 'POST';
                 const url = exists ? `${API_BASE}/patients/${id}` : `${API_BASE}/patients`;
 
-                // 3. Execute Transaction
                 const response = await fetch(url, {
                     method: method,
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
                 
-                const responseData = await response.json();
-
                 if (!response.ok) {
-                    throw new Error(responseData.error || "Database rejected the transaction.");
+                    const responseData = await response.json();
+                    throw new Error(responseData.error || "Transaction rejected.");
                 }
 
-                // 4. Refresh UI and Notify
                 fetchPatients();
-                alert(`Success: Patient ${id} has been saved to the Matrix.`);
+                alert(`Success: Patient ${id} saved.`);
                 
-                // 5. Clear Inputs
                 document.getElementById('db-id').value = '';
                 document.getElementById('db-name').value = '';
                 document.getElementById('db-age').value = '';
                 document.getElementById('db-allergies').value = '';
                 document.getElementById('db-meds').value = '';
 
-            } catch (error) {
-                alert(`Transaction Error: ${error.message}`);
-                console.error(error);
-            }
+            } catch (error) { alert(`Transaction Error: ${error.message}`); }
         }
 
         async function deletePatient(id) {
@@ -541,7 +738,6 @@
             }
         }
 
-        // --- LOGS LOGIC ---
         async function fetchLogs() {
             try {
                 const response = await fetch(`${API_BASE}/logs`);
@@ -550,25 +746,22 @@
                 tbody.innerHTML = '';
                 
                 logs.forEach(l => {
-                    let statusClass = 'log-safe';
-                    if (l.AI_Status === 'WARNING') statusClass = 'log-warning';
-                    if (l.AI_Status === 'CRITICAL') statusClass = 'log-critical';
-
+                    let color = 'var(--accent-green)';
+                    if (l.AI_Status === 'WARNING') color = 'var(--accent-yellow)';
+                    if (l.AI_Status === 'CRITICAL') color = 'var(--accent-red)';
                     let localTime = new Date(l.Timestamp + 'Z').toLocaleString();
 
                     tbody.innerHTML += `
                         <tr>
-                            <td>#${l.Log_ID}</td>
-                            <td style="font-size: 0.8em; color: #8fa3b0;">${localTime}</td>
+                            <td style="color:var(--text-muted)">#${l.Log_ID}</td>
+                            <td style="font-size:0.85em; color:var(--text-muted);">${localTime}</td>
                             <td>${l.Patient_ID}</td>
                             <td>${l.Medication}</td>
-                            <td class="${statusClass}">${l.AI_Status}</td>
+                            <td style="color:${color}; font-weight:600;">${l.AI_Status}</td>
                         </tr>
                     `;
                 });
-            } catch (e) {
-                console.error("Failed to fetch logs: ", e);
-            }
+            } catch (e) { console.error(e); }
         }
     </script>
 </body>
