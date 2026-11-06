@@ -4,6 +4,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 import os
 import json
+import time
 import pymysql
 import pymysql.cursors
 import re
@@ -20,9 +21,40 @@ client = OpenAI(
 MODEL_ID = "openai/gpt-oss-20b"
 
 app = Flask(__name__)
-# Secure secret key for session cookies
+# Secure secret key and session configuration
 app.secret_key = os.getenv("SECRET_KEY", "pharmamind-super-secret-dev-key") 
-CORS(app, supports_credentials=True)
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    SESSION_COOKIE_SECURE=os.getenv("FLASK_ENV") == "production"
+)
+
+# Restrict CORS to trusted origins
+ALLOWED_ORIGINS = [
+    "https://pharmindai.onrender.com",
+    "http://127.0.0.1:5000",
+    "http://localhost:5000"
+]
+CORS(app, supports_credentials=True, origins=ALLOWED_ORIGINS)
+
+# Lightweight In-Memory Rate Limiter (Protects Groq Credits & Auth)
+RATE_LIMIT_STORE = {}
+
+def rate_limit(limit=10, per=60):
+    def decorator(f):
+        @wraps(f)
+        def wrapped(*args, **kwargs):
+            ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+            key = f"{f.__name__}:{ip}"
+            now = time.time()
+            timestamps = [t for t in RATE_LIMIT_STORE.get(key, []) if now - t < per]
+            if len(timestamps) >= limit:
+                return jsonify({"error": f"Rate limit exceeded ({limit} requests per {per}s). Please wait."}), 429
+            timestamps.append(now)
+            RATE_LIMIT_STORE[key] = timestamps
+            return f(*args, **kwargs)
+        return wrapped
+    return decorator
 
 def get_db_connection():
     return pymysql.connect(
@@ -39,16 +71,23 @@ def init_db():
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # Core Clinical Tables
+    # Core Clinical Tables (Supports Soft Deletes)
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS Patients_Table (
         Patient_ID VARCHAR(50) PRIMARY KEY,
         Full_Name VARCHAR(100),
         Age INT,
         Known_Allergies TEXT,
-        Current_Medications TEXT
+        Current_Medications TEXT,
+        Is_Deleted TINYINT(1) DEFAULT 0
     )
     """)
+
+    # Ensure Is_Deleted column exists on older schemas
+    try:
+        cursor.execute("ALTER TABLE Patients_Table ADD COLUMN Is_Deleted TINYINT(1) DEFAULT 0")
+    except Exception:
+        pass
 
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS Verification_Logs_Table (
@@ -57,6 +96,18 @@ def init_db():
         Medication VARCHAR(100),
         AI_Status VARCHAR(50),
         AI_Flag VARCHAR(100),
+        Timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS Patient_Audit_Logs (
+        Audit_ID INT AUTO_INCREMENT PRIMARY KEY,
+        User_Email VARCHAR(100),
+        Action VARCHAR(20),
+        Patient_ID VARCHAR(50),
+        Before_Data TEXT,
+        After_Data TEXT,
         Timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
     )
     """)
@@ -71,10 +122,9 @@ def init_db():
     )
     """)
 
-    # Refresh Users Table for Auth System
-    cursor.execute("DROP TABLE IF EXISTS Users_Table")
+    # Persistent Users Table (Removed DROP TABLE so accounts survive restarts)
     cursor.execute("""
-    CREATE TABLE Users_Table (
+    CREATE TABLE IF NOT EXISTS Users_Table (
         User_ID INT AUTO_INCREMENT PRIMARY KEY,
         Full_Name VARCHAR(100),
         Email VARCHAR(100) UNIQUE,
@@ -83,16 +133,22 @@ def init_db():
     )
     """)
 
-    # Create Default Admin Account
+    # Create Default Admin & Standard Pharmacist Accounts
     admin_pass = generate_password_hash("Admin123!")
     cursor.execute("""
     INSERT IGNORE INTO Users_Table (Full_Name, Email, Password_Hash, Role) 
     VALUES ('System Admin', 'admin@pharmamind.com', %s, 'admin')
     """, (admin_pass,))
 
+    user_pass = generate_password_hash("User123!")
     cursor.execute("""
-    INSERT IGNORE INTO Patients_Table (Patient_ID, Full_Name, Age, Known_Allergies, Current_Medications) 
-    VALUES ('PT-001', 'John Doe', 21, 'Penicillin', 'None')
+    INSERT IGNORE INTO Users_Table (Full_Name, Email, Password_Hash, Role) 
+    VALUES ('Staff Pharmacist', 'pharmacist@pharmamind.com', %s, 'user')
+    """, (user_pass,))
+
+    cursor.execute("""
+    INSERT IGNORE INTO Patients_Table (Patient_ID, Full_Name, Age, Known_Allergies, Current_Medications, Is_Deleted) 
+    VALUES ('PT-001', 'John Doe (Demo)', 21, 'Penicillin', 'None', 0)
     """)
 
     conn.commit()
@@ -125,11 +181,39 @@ def admin_required(f):
 
 
 # --- AUTHENTICATION ENDPOINTS ---
+@app.route('/api/auth/signup', methods=['POST'])
+@rate_limit(limit=5, per=300)
+def signup():
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    email = (data.get('email') or '').strip().lower()
+    password = data.get('password') or ''
+
+    if not name or not email or len(password) < 6:
+        return jsonify({"error": "Name, valid email, and password (min 6 chars) are required."}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        pw_hash = generate_password_hash(password)
+        # Signup strictly provisions 'user' role; admins are elevated in DB only
+        cursor.execute(
+            "INSERT INTO Users_Table (Full_Name, Email, Password_Hash, Role) VALUES (%s, %s, %s, 'user')",
+            (name, email, pw_hash)
+        )
+        conn.commit()
+        return jsonify({"message": "Account created as read-only clinician. Please sign in."}), 201
+    except pymysql.IntegrityError:
+        return jsonify({"error": "An account with this email already exists."}), 400
+    finally:
+        conn.close()
+
 @app.route('/api/auth/login', methods=['POST'])
+@rate_limit(limit=10, per=60)
 def login():
-    data = request.get_json()
-    email = data.get('email')
-    password = data.get('password')
+    data = request.get_json() or {}
+    email = (data.get('email') or '').strip().lower()
+    password = data.get('password') or ''
 
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -140,9 +224,15 @@ def login():
     if user and check_password_hash(user['Password_Hash'], password):
         session.clear()
         session['user_id'] = user['User_ID']
+        session['email'] = user['Email']
         session['role'] = user['Role']
         session['name'] = user['Full_Name']
-        return jsonify({"message": "Logged in successfully", "role": user['Role'], "name": user['Full_Name']}), 200
+        return jsonify({
+            "message": "Logged in successfully",
+            "role": user['Role'],
+            "name": user['Full_Name'],
+            "email": user['Email']
+        }), 200
     
     return jsonify({"error": "Invalid email or password"}), 401
 
@@ -158,6 +248,7 @@ def get_current_user():
             "authenticated": True,
             "user_id": session['user_id'],
             "name": session['name'],
+            "email": session.get('email', ''),
             "role": session['role']
         }), 200
     return jsonify({"authenticated": False}), 200
@@ -174,6 +265,7 @@ def health_check():
 # --- 1. VERIFICATION ENDPOINT ---
 @app.route('/api/verify', methods=['POST'])
 @login_required
+@rate_limit(limit=15, per=60)
 def verify_prescription():
     data = request.get_json()
     if not data:
@@ -184,7 +276,7 @@ def verify_prescription():
 
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM Patients_Table WHERE Patient_ID = %s', (patient_id,))
+    cursor.execute('SELECT * FROM Patients_Table WHERE Patient_ID = %s AND (Is_Deleted = 0 OR Is_Deleted IS NULL)', (patient_id,))
     patient = cursor.fetchone()
 
     if patient is None:
@@ -243,6 +335,7 @@ def verify_prescription():
 # --- 2. PHARM CALCULATOR ENDPOINT ---
 @app.route('/api/calculate', methods=['POST'])
 @login_required
+@rate_limit(limit=15, per=60)
 def calculate_formulation():
     data = request.get_json()
 
@@ -313,6 +406,7 @@ def calculate_formulation():
 # --- 3. CLINICAL DECISION SUPPORT ---
 @app.route('/api/suggest', methods=['POST'])
 @login_required
+@rate_limit(limit=15, per=60)
 def clinical_decision_support():
     data = request.get_json()
     
@@ -327,7 +421,7 @@ def clinical_decision_support():
     if patient_id:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute('SELECT * FROM Patients_Table WHERE Patient_ID = %s', (patient_id,))
+        cursor.execute('SELECT * FROM Patients_Table WHERE Patient_ID = %s AND (Is_Deleted = 0 OR Is_Deleted IS NULL)', (patient_id,))
         patient = cursor.fetchone()
         conn.close()
         
@@ -366,13 +460,13 @@ def clinical_decision_support():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# --- 4. PATIENTS CRUD ENDPOINTS ---
+# --- 4. PATIENTS CRUD ENDPOINTS (WITH SOFT DELETE & AUDIT LOGS) ---
 @app.route('/api/patients', methods=['GET'])
 @login_required
 def get_patients():
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM Patients_Table')
+    cursor.execute('SELECT * FROM Patients_Table WHERE Is_Deleted = 0 OR Is_Deleted IS NULL')
     patients = cursor.fetchall()
     conn.close()
     
@@ -394,16 +488,46 @@ def create_patient():
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
+        pid = data['patient_id']
+        cursor.execute('SELECT * FROM Patients_Table WHERE Patient_ID = %s', (pid,))
+        existing = cursor.fetchone()
+
+        after_state = json.dumps({
+            "Full_Name": data['full_name'],
+            "Age": data['age'],
+            "Known_Allergies": data['allergies'],
+            "Current_Medications": data['medications']
+        })
+
+        # If previously soft-deleted, restore and update
+        if existing and existing.get('Is_Deleted') == 1:
+            cursor.execute(
+                '''UPDATE Patients_Table 
+                   SET Full_Name=%s, Age=%s, Known_Allergies=%s, Current_Medications=%s, Is_Deleted=0 
+                   WHERE Patient_ID=%s''',
+                (data['full_name'], data['age'], data['allergies'], data['medications'], pid)
+            )
+            action_type = 'RESTORE'
+            before_state = json.dumps({"Is_Deleted": 1})
+        else:
+            cursor.execute(
+                '''INSERT INTO Patients_Table 
+                   (Patient_ID, Full_Name, Age, Known_Allergies, Current_Medications, Is_Deleted) 
+                   VALUES (%s, %s, %s, %s, %s, 0)''',
+                (pid, data['full_name'], data['age'], data['allergies'], data['medications'])
+            )
+            action_type = 'CREATE'
+            before_state = None
+
         cursor.execute(
-            '''INSERT INTO Patients_Table 
-               (Patient_ID, Full_Name, Age, Known_Allergies, Current_Medications) 
+            '''INSERT INTO Patient_Audit_Logs (User_Email, Action, Patient_ID, Before_Data, After_Data)
                VALUES (%s, %s, %s, %s, %s)''',
-            (data['patient_id'], data['full_name'], data['age'], data['allergies'], data['medications'])
+            (session.get('email', 'admin'), action_type, pid, before_state, after_state)
         )
         conn.commit()
         return jsonify({"status": "Patient added"}), 201
     except pymysql.IntegrityError:
-        return jsonify({"error": "Patient ID exists"}), 400
+        return jsonify({"error": "Patient ID already exists"}), 400
     finally:
         conn.close()
 
@@ -413,12 +537,36 @@ def update_patient(patient_id):
     data = request.get_json()
     conn = get_db_connection()
     cursor = conn.cursor()
+
+    cursor.execute('SELECT * FROM Patients_Table WHERE Patient_ID = %s', (patient_id,))
+    before = cursor.fetchone()
+    before_json = json.dumps({
+        "Full_Name": before.get("Full_Name") if before else "",
+        "Age": before.get("Age") if before else "",
+        "Known_Allergies": before.get("Known_Allergies") if before else "",
+        "Current_Medications": before.get("Current_Medications") if before else ""
+    }) if before else None
+
     cursor.execute(
         '''UPDATE Patients_Table 
            SET Full_Name=%s, Age=%s, Known_Allergies=%s, Current_Medications=%s 
            WHERE Patient_ID=%s''',
         (data['full_name'], data['age'], data['allergies'], data['medications'], patient_id)
     )
+
+    after_json = json.dumps({
+        "Full_Name": data['full_name'],
+        "Age": data['age'],
+        "Known_Allergies": data['allergies'],
+        "Current_Medications": data['medications']
+    })
+
+    cursor.execute(
+        '''INSERT INTO Patient_Audit_Logs (User_Email, Action, Patient_ID, Before_Data, After_Data)
+           VALUES (%s, 'UPDATE', %s, %s, %s)''',
+        (session.get('email', 'admin'), patient_id, before_json, after_json)
+    )
+
     conn.commit()
     conn.close()
     return jsonify({"status": "Patient updated"}), 200
@@ -428,12 +576,30 @@ def update_patient(patient_id):
 def delete_patient(patient_id):
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute('DELETE FROM Patients_Table WHERE Patient_ID = %s', (patient_id,))
+
+    cursor.execute('SELECT * FROM Patients_Table WHERE Patient_ID = %s', (patient_id,))
+    before = cursor.fetchone()
+    before_json = json.dumps({
+        "Full_Name": before.get("Full_Name") if before else "",
+        "Age": before.get("Age") if before else "",
+        "Known_Allergies": before.get("Known_Allergies") if before else "",
+        "Current_Medications": before.get("Current_Medications") if before else ""
+    }) if before else None
+
+    # Soft delete instead of permanent removal
+    cursor.execute('UPDATE Patients_Table SET Is_Deleted = 1 WHERE Patient_ID = %s', (patient_id,))
+
+    cursor.execute(
+        '''INSERT INTO Patient_Audit_Logs (User_Email, Action, Patient_ID, Before_Data, After_Data)
+           VALUES (%s, 'SOFT_DELETE', %s, %s, %s)''',
+        (session.get('email', 'admin'), patient_id, before_json, json.dumps({"Is_Deleted": 1}))
+    )
+
     conn.commit()
     conn.close()
-    return jsonify({"status": "Patient deleted"}), 200
+    return jsonify({"status": "Patient archived (soft-deleted)"}), 200
 
-# --- 5. AUDIT LOGS ENDPOINT ---
+# --- 5. AUDIT & VERIFICATION LOGS ENDPOINTS ---
 @app.route('/api/logs', methods=['GET'])
 @login_required
 def get_logs():
@@ -456,5 +622,29 @@ def get_logs():
         })
     return jsonify(logs_list), 200
 
+@app.route('/api/audit-logs', methods=['GET'])
+@admin_required
+def get_audit_logs():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM Patient_Audit_Logs ORDER BY Timestamp DESC LIMIT 200')
+    audits = cursor.fetchall()
+    conn.close()
+
+    audit_list = []
+    for a in audits:
+        ts = a.get("Timestamp", a.get("timestamp"))
+        audit_list.append({
+            "Audit_ID": a.get("Audit_ID"),
+            "User_Email": a.get("User_Email"),
+            "Action": a.get("Action"),
+            "Patient_ID": a.get("Patient_ID"),
+            "Before_Data": a.get("Before_Data"),
+            "After_Data": a.get("After_Data"),
+            "Timestamp": ts.isoformat() + "Z" if ts else ""
+        })
+    return jsonify(audit_list), 200
+
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    is_debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"
+    app.run(debug=is_debug, port=int(os.getenv("PORT", 5000)))
